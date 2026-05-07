@@ -5,7 +5,7 @@
     id uuid primary key default gen_random_uuid(),
     email text unique not null,
     name text not null,
-    role text not null default 'customer',
+    role text not null default 'customer',  -- 'customer' | 'provider' | 'admin'
     password text not null,
     created_at timestamptz default now()
   );
@@ -49,11 +49,33 @@
     qty integer not null
   );
 
-  -- RLS (service role key bypasses it, but good practice to enable)
-  alter table users enable row level security;
-  alter table provider_profiles enable row level security;
-  alter table bookings enable row level security;
-  alter table booking_items enable row level security;
+  -- One satisfaction rating per booking (set after completion)
+  create table booking_ratings (
+    booking_id uuid primary key references bookings(id),
+    stars integer not null check (stars between 1 and 5),
+    created_at timestamptz default now()
+  );
+
+  -- Admin-created surveys sent to users
+  create table surveys (
+    id uuid primary key default gen_random_uuid(),
+    title text not null,
+    description text default '',
+    questions jsonb not null default '[]',
+    -- questions format: [{id, text, type: 'rating'|'text'|'choice', options?: string[]}]
+    active boolean default true,
+    created_at timestamptz default now()
+  );
+
+  -- One response per user per survey
+  create table survey_responses (
+    id uuid primary key default gen_random_uuid(),
+    survey_id uuid references surveys(id),
+    user_id uuid references users(id),
+    answers jsonb not null default '{}',  -- {questionId: value}
+    created_at timestamptz default now(),
+    unique(survey_id, user_id)
+  );
 
   -- Atomic helper called when a job is marked completed
   create or replace function increment_provider_stats(p_user_id uuid, p_earnings numeric)
@@ -63,6 +85,17 @@
         total_earnings = total_earnings + p_earnings
     where user_id = p_user_id;
   $$;
+
+  alter table users enable row level security;
+  alter table provider_profiles enable row level security;
+  alter table bookings enable row level security;
+  alter table booking_items enable row level security;
+  alter table booking_ratings enable row level security;
+  alter table surveys enable row level security;
+  alter table survey_responses enable row level security;
+
+  -- To promote a user to admin (run once for your first admin):
+  -- update users set role = 'admin' where email = 'admin@example.com';
 */
 
 import { createClient } from '@supabase/supabase-js';
@@ -128,6 +161,7 @@ const mapBooking = (b) => ({
   updatedAt: b.updated_at,
   items: (b.booking_items || []).map(mapItem),
   customerName: b.customer?.name || 'Customer',
+  rating: b.booking_ratings?.[0]?.stars ?? null,
 });
 
 // ─── App setup ────────────────────────────────────────────────────────────────
@@ -149,6 +183,11 @@ const auth = (req, res, next) => {
 
 const requireProvider = (req, res, next) => {
   if (req.user.role !== 'provider') return res.status(403).json({ error: 'Provider access required' });
+  next();
+};
+
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   next();
 };
 
@@ -244,10 +283,7 @@ app.post('/api/bookings', auth, async (req, res) => {
         scheduled_date: datetime || null,
         address: address || '',
         district: district || '',
-        subtotal,
-        tax,
-        fee,
-        total,
+        subtotal, tax, fee, total,
       })
       .select()
       .single();
@@ -263,7 +299,7 @@ app.post('/api/bookings', auth, async (req, res) => {
     const { data: items, error: itemErr } = await supabase.from('booking_items').insert(itemRows).select();
     if (itemErr) throw itemErr;
 
-    res.json({ ...mapBooking({ ...booking, booking_items: items }) });
+    res.json(mapBooking({ ...booking, booking_items: items }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -273,11 +309,33 @@ app.get('/api/bookings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('bookings')
-      .select('*, booking_items(*)')
+      .select('*, booking_items(*), booking_ratings(stars)')
       .eq('customer_id', req.user.userId)
       .order('created_at', { ascending: false });
     if (error) throw error;
     res.json(data.map(mapBooking));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/bookings/:id/rate', auth, async (req, res) => {
+  try {
+    const { stars } = req.body;
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+      return res.status(400).json({ error: 'Stars must be an integer between 1 and 5' });
+    }
+    const { data: booking } = await supabase
+      .from('bookings').select('id, status, customer_id')
+      .eq('id', req.params.id).eq('customer_id', req.user.userId).maybeSingle();
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.status !== 'completed') return res.status(400).json({ error: 'Can only rate completed bookings' });
+
+    const { error } = await supabase
+      .from('booking_ratings')
+      .upsert({ booking_id: booking.id, stars }, { onConflict: 'booking_id' });
+    if (error) throw error;
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -378,7 +436,6 @@ app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
     if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-
     const { data: completedJobs, error } = await supabase
       .from('bookings')
       .select('*, booking_items(*)')
@@ -399,6 +456,116 @@ app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
       category: profile.category,
       recentJobs: completedJobs.slice(0, 10).map(mapBooking),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Survey routes (for users) ────────────────────────────────────────────────
+app.get('/api/surveys/pending', auth, async (req, res) => {
+  try {
+    const { data: responded } = await supabase
+      .from('survey_responses').select('survey_id').eq('user_id', req.user.userId);
+    const respondedIds = (responded || []).map(r => r.survey_id);
+
+    let query = supabase.from('surveys').select('*').eq('active', true).order('created_at', { ascending: false });
+    if (respondedIds.length > 0) query = query.not('id', 'in', `(${respondedIds.join(',')})`);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/surveys/:id/respond', auth, async (req, res) => {
+  try {
+    const { answers } = req.body;
+    const { error } = await supabase
+      .from('survey_responses')
+      .insert({ survey_id: req.params.id, user_id: req.user.userId, answers });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Admin routes ─────────────────────────────────────────────────────────────
+app.get('/api/admin/users', auth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users').select('id, email, name, role, created_at').order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data.map(mapUser));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/users/:id', auth, requireAdmin, async (req, res) => {
+  try {
+    const { role } = req.body;
+    if (!['customer', 'provider', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+    const { data, error } = await supabase
+      .from('users').update({ role }).eq('id', req.params.id)
+      .select('id, email, name, role, created_at').single();
+    if (error) throw error;
+    res.json(mapUser(data));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
+  try {
+    const { data: surveys, error } = await supabase
+      .from('surveys').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const { data: counts } = await supabase.from('survey_responses').select('survey_id');
+    const countMap = {};
+    (counts || []).forEach(r => { countMap[r.survey_id] = (countMap[r.survey_id] || 0) + 1; });
+    res.json(surveys.map(s => ({ ...s, responseCount: countMap[s.id] || 0 })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
+  try {
+    const { title, description, questions } = req.body;
+    if (!title || !questions?.length) return res.status(400).json({ error: 'Title and at least one question are required' });
+    const { data, error } = await supabase
+      .from('surveys').insert({ title, description: description || '', questions }).select().single();
+    if (error) throw error;
+    res.json({ ...data, responseCount: 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/surveys/:id', auth, requireAdmin, async (req, res) => {
+  try {
+    const { active } = req.body;
+    const { data, error } = await supabase
+      .from('surveys').update({ active }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/ratings', auth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('booking_ratings').select('stars');
+    if (error) throw error;
+    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    (data || []).forEach(r => counts[r.stars]++);
+    const total = data?.length || 0;
+    const average = total ? data.reduce((s, r) => s + r.stars, 0) / total : 0;
+    res.json({ counts, total, average });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
