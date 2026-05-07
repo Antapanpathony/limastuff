@@ -1,44 +1,139 @@
+/*
+  Supabase schema — run this SQL in the Supabase SQL editor:
+
+  create table users (
+    id uuid primary key default gen_random_uuid(),
+    email text unique not null,
+    name text not null,
+    role text not null default 'customer',
+    password text not null,
+    created_at timestamptz default now()
+  );
+
+  create table provider_profiles (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references users(id) on delete cascade unique,
+    bio text default '',
+    category text not null,
+    hourly_rate numeric default 0,
+    rating numeric default 5.0,
+    jobs_completed integer default 0,
+    total_earnings numeric default 0,
+    created_at timestamptz default now()
+  );
+
+  create table bookings (
+    id uuid primary key default gen_random_uuid(),
+    code text not null,
+    customer_id uuid references users(id),
+    provider_id uuid references users(id),
+    service_category text not null,
+    status text not null default 'pending',
+    scheduled_date timestamptz,
+    address text default '',
+    district text default '',
+    subtotal numeric not null,
+    tax numeric not null,
+    fee numeric not null,
+    total numeric not null,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+  );
+
+  create table booking_items (
+    id uuid primary key default gen_random_uuid(),
+    booking_id uuid references bookings(id) on delete cascade,
+    service_id text not null,
+    service_name text not null,
+    price numeric not null,
+    qty integer not null
+  );
+
+  -- RLS (service role key bypasses it, but good practice to enable)
+  alter table users enable row level security;
+  alter table provider_profiles enable row level security;
+  alter table bookings enable row level security;
+  alter table booking_items enable row level security;
+
+  -- Atomic helper called when a job is marked completed
+  create or replace function increment_provider_stats(p_user_id uuid, p_earnings numeric)
+  returns void language sql as $$
+    update provider_profiles
+    set jobs_completed = jobs_completed + 1,
+        total_earnings = total_earnings + p_earnings
+    where user_id = p_user_id;
+  $$;
+*/
+
+import { createClient } from '@supabase/supabase-js';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { Low } from 'lowdb';
-import { JSONFile } from 'lowdb/node';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { mkdirSync } from 'fs';
 import crypto from 'crypto';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const dataDir = process.env.VERCEL ? '/tmp' : join(__dirname, '../data');
-if (!process.env.VERCEL) mkdirSync(dataDir, { recursive: true });
-
-const adapter = new JSONFile(join(dataDir, 'db.json'));
-export const db = new Low(adapter, {
-  users: [],
-  provider_profiles: [],
-  bookings: [],
-  booking_items: [],
-});
-
-let dbReady = false;
-async function initDb() {
-  if (dbReady) return;
-  await db.read();
-  db.data ??= { users: [], provider_profiles: [], bookings: [], booking_items: [] };
-  dbReady = true;
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'peruserv-dev-secret-2024';
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
+// ─── Row mappers (snake_case DB → camelCase API) ──────────────────────────────
+const mapUser = (u) => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  role: u.role,
+  createdAt: u.created_at,
+});
+
+const mapProfile = (p) => p ? ({
+  id: p.id,
+  userId: p.user_id,
+  bio: p.bio,
+  category: p.category,
+  hourlyRate: p.hourly_rate,
+  rating: p.rating,
+  jobsCompleted: p.jobs_completed,
+  totalEarnings: p.total_earnings,
+  createdAt: p.created_at,
+}) : null;
+
+const mapItem = (i) => ({
+  id: i.id,
+  bookingId: i.booking_id,
+  serviceId: i.service_id,
+  serviceName: i.service_name,
+  price: Number(i.price),
+  qty: i.qty,
+});
+
+const mapBooking = (b) => ({
+  id: b.id,
+  code: b.code,
+  customerId: b.customer_id,
+  providerId: b.provider_id,
+  serviceCategory: b.service_category,
+  status: b.status,
+  scheduledDate: b.scheduled_date,
+  address: b.address,
+  district: b.district,
+  subtotal: Number(b.subtotal),
+  tax: Number(b.tax),
+  fee: Number(b.fee),
+  total: Number(b.total),
+  createdAt: b.created_at,
+  updatedAt: b.updated_at,
+  items: (b.booking_items || []).map(mapItem),
+  customerName: b.customer?.name || 'Customer',
+});
+
+// ─── App setup ────────────────────────────────────────────────────────────────
 export const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
-
-app.use(async (_req, _res, next) => {
-  try { await initDb(); next(); } catch (err) { next(err); }
-});
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 const auth = (req, res, next) => {
@@ -62,44 +157,32 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, role = 'customer', category, bio, hourlyRate } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'Missing required fields' });
-    if (db.data.users.find(u => u.email === email)) {
-      return res.status(409).json({ error: 'Email already registered' });
-    }
-    if (role === 'provider' && !category) {
-      return res.status(400).json({ error: 'Category is required for providers' });
-    }
+    if (role === 'provider' && !category) return res.status(400).json({ error: 'Category is required for providers' });
+
+    const { data: existing } = await supabase.from('users').select('id').eq('email', email).maybeSingle();
+    if (existing) return res.status(409).json({ error: 'Email already registered' });
 
     const hashedPass = await bcrypt.hash(password, 10);
-    const user = {
-      id: crypto.randomUUID(),
-      email,
-      name,
-      role,
-      password: hashedPass,
-      createdAt: new Date().toISOString(),
-    };
-    db.data.users.push(user);
+    const { data: user, error: userErr } = await supabase
+      .from('users')
+      .insert({ email, name, role, password: hashedPass })
+      .select('id, email, name, role, created_at')
+      .single();
+    if (userErr) throw userErr;
 
     let providerProfile = null;
-    if (role === 'provider' && category) {
-      providerProfile = {
-        id: crypto.randomUUID(),
-        userId: user.id,
-        bio: bio || '',
-        category,
-        hourlyRate: Number(hourlyRate) || 0,
-        rating: 5.0,
-        jobsCompleted: 0,
-        totalEarnings: 0,
-        createdAt: new Date().toISOString(),
-      };
-      db.data.provider_profiles.push(providerProfile);
+    if (role === 'provider') {
+      const { data: profile, error: profErr } = await supabase
+        .from('provider_profiles')
+        .insert({ user_id: user.id, bio: bio || '', category, hourly_rate: Number(hourlyRate) || 0 })
+        .select()
+        .single();
+      if (profErr) throw profErr;
+      providerProfile = mapProfile(profile);
     }
 
-    await db.write();
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
-    const { password: _, ...safeUser } = user;
-    res.json({ token, user: { ...safeUser, providerProfile } });
+    res.json({ token, user: { ...mapUser(user), providerProfile } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -110,27 +193,32 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
 
-    const user = db.data.users.find(u => u.email === email);
+    const { data: user } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
 
+    const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
-    const { password: _, ...safeUser } = user;
-    const providerProfile = db.data.provider_profiles.find(p => p.userId === user.id) || null;
-    res.json({ token, user: { ...safeUser, providerProfile } });
+    res.json({ token, user: { ...mapUser(user), providerProfile: mapProfile(profile) } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/auth/me', auth, (req, res) => {
-  const user = db.data.users.find(u => u.id === req.user.userId);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  const { password: _, ...safeUser } = user;
-  const providerProfile = db.data.provider_profiles.find(p => p.userId === user.id) || null;
-  res.json({ ...safeUser, providerProfile });
+app.get('/api/auth/me', auth, async (req, res) => {
+  try {
+    const { data: user } = await supabase
+      .from('users').select('id, email, name, role, created_at')
+      .eq('id', req.user.userId).maybeSingle();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
+    res.json({ ...mapUser(user), providerProfile: mapProfile(profile) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Customer booking routes ──────────────────────────────────────────────────
@@ -143,143 +231,177 @@ app.post('/api/bookings', auth, async (req, res) => {
     const tax = subtotal * 0.18;
     const fee = 2;
     const total = subtotal + tax + fee;
-
     const code = crypto.randomBytes(4).toString('hex').toUpperCase();
     const serviceCategory = cart[0]?.svc?.cat || 'general';
 
-    const booking = {
-      id: crypto.randomUUID(),
-      code,
-      customerId: req.user.userId,
-      providerId: null,
-      serviceCategory,
-      status: 'pending',
-      scheduledDate: datetime || null,
-      address: address || '',
-      district: district || '',
-      subtotal,
-      tax,
-      fee,
-      total,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    db.data.bookings.push(booking);
+    const { data: booking, error: bookErr } = await supabase
+      .from('bookings')
+      .insert({
+        code,
+        customer_id: req.user.userId,
+        service_category: serviceCategory,
+        status: 'pending',
+        scheduled_date: datetime || null,
+        address: address || '',
+        district: district || '',
+        subtotal,
+        tax,
+        fee,
+        total,
+      })
+      .select()
+      .single();
+    if (bookErr) throw bookErr;
 
-    const items = cart.map(i => ({
-      id: crypto.randomUUID(),
-      bookingId: booking.id,
-      serviceId: i.svc.id,
-      serviceName: i.svc.name[lang] || i.svc.name.es,
+    const itemRows = cart.map(i => ({
+      booking_id: booking.id,
+      service_id: i.svc.id,
+      service_name: i.svc.name[lang] || i.svc.name.es,
       price: i.svc.price,
       qty: i.qty,
     }));
-    db.data.booking_items.push(...items);
-    await db.write();
+    const { data: items, error: itemErr } = await supabase.from('booking_items').insert(itemRows).select();
+    if (itemErr) throw itemErr;
 
-    res.json({ ...booking, items });
+    res.json({ ...mapBooking({ ...booking, booking_items: items }) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/bookings', auth, (req, res) => {
-  const bookings = db.data.bookings
-    .filter(b => b.customerId === req.user.userId)
-    .map(b => ({ ...b, items: db.data.booking_items.filter(i => i.bookingId === b.id) }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json(bookings);
+app.get('/api/bookings', auth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*, booking_items(*)')
+      .eq('customer_id', req.user.userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data.map(mapBooking));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Provider routes ──────────────────────────────────────────────────────────
-app.get('/api/provider/available', auth, requireProvider, (req, res) => {
-  const profile = db.data.provider_profiles.find(p => p.userId === req.user.userId);
-  if (!profile) return res.status(404).json({ error: 'Provider profile not found' });
+app.get('/api/provider/available', auth, requireProvider, async (req, res) => {
+  try {
+    const { data: profile } = await supabase
+      .from('provider_profiles').select('category').eq('user_id', req.user.userId).maybeSingle();
+    if (!profile) return res.status(404).json({ error: 'Provider profile not found' });
 
-  const available = db.data.bookings
-    .filter(b => b.status === 'pending' && b.serviceCategory === profile.category)
-    .map(b => ({ ...b, items: db.data.booking_items.filter(i => i.bookingId === b.id) }))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json(available);
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*, booking_items(*)')
+      .eq('status', 'pending')
+      .eq('service_category', profile.category)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data.map(mapBooking));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/provider/jobs', auth, requireProvider, (req, res) => {
-  const jobs = db.data.bookings
-    .filter(b => b.providerId === req.user.userId)
-    .map(b => {
-      const customer = db.data.users.find(u => u.id === b.customerId);
-      return {
-        ...b,
-        items: db.data.booking_items.filter(i => i.bookingId === b.id),
-        customerName: customer?.name || 'Customer',
-      };
-    })
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  res.json(jobs);
+app.get('/api/provider/jobs', auth, requireProvider, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('*, booking_items(*), customer:users!customer_id(name)')
+      .eq('provider_id', req.user.userId)
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    res.json(data.map(mapBooking));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/provider/jobs/:id/accept', auth, requireProvider, async (req, res) => {
-  const booking = db.data.bookings.find(b => b.id === req.params.id);
-  if (!booking) return res.status(404).json({ error: 'Booking not found' });
-  if (booking.status !== 'pending') return res.status(400).json({ error: 'Job is no longer available' });
+  try {
+    const { data: booking } = await supabase
+      .from('bookings').select('id, status').eq('id', req.params.id).maybeSingle();
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.status !== 'pending') return res.status(400).json({ error: 'Job is no longer available' });
 
-  booking.providerId = req.user.userId;
-  booking.status = 'accepted';
-  booking.updatedAt = new Date().toISOString();
-  await db.write();
-  res.json(booking);
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ provider_id: req.user.userId, status: 'accepted', updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select('*, booking_items(*)')
+      .single();
+    if (error) throw error;
+    res.json(mapBooking(data));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/provider/jobs/:id/status', auth, requireProvider, async (req, res) => {
-  const { status } = req.body;
-  const booking = db.data.bookings.find(b => b.id === req.params.id && b.providerId === req.user.userId);
-  if (!booking) return res.status(404).json({ error: 'Job not found' });
+  try {
+    const { status } = req.body;
+    const { data: booking } = await supabase
+      .from('bookings').select('id, status, total')
+      .eq('id', req.params.id).eq('provider_id', req.user.userId).maybeSingle();
+    if (!booking) return res.status(404).json({ error: 'Job not found' });
 
-  const transitions = { accepted: ['in_progress'], in_progress: ['completed'] };
-  if (!transitions[booking.status]?.includes(status)) {
-    return res.status(400).json({ error: `Cannot change from ${booking.status} to ${status}` });
-  }
-
-  booking.status = status;
-  booking.updatedAt = new Date().toISOString();
-
-  if (status === 'completed') {
-    const profile = db.data.provider_profiles.find(p => p.userId === req.user.userId);
-    if (profile) {
-      profile.jobsCompleted += 1;
-      profile.totalEarnings += booking.total;
+    const transitions = { accepted: ['in_progress'], in_progress: ['completed'] };
+    if (!transitions[booking.status]?.includes(status)) {
+      return res.status(400).json({ error: `Cannot change from ${booking.status} to ${status}` });
     }
-  }
 
-  await db.write();
-  res.json(booking);
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select('*, booking_items(*)')
+      .single();
+    if (error) throw error;
+
+    if (status === 'completed') {
+      await supabase.rpc('increment_provider_stats', {
+        p_user_id: req.user.userId,
+        p_earnings: Number(booking.total),
+      });
+    }
+
+    res.json(mapBooking(data));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/provider/earnings', auth, requireProvider, (req, res) => {
-  const profile = db.data.provider_profiles.find(p => p.userId === req.user.userId);
-  if (!profile) return res.status(404).json({ error: 'Profile not found' });
+app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
+  try {
+    const { data: profile } = await supabase
+      .from('provider_profiles').select('*').eq('user_id', req.user.userId).maybeSingle();
+    if (!profile) return res.status(404).json({ error: 'Profile not found' });
 
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-  const completedJobs = db.data.bookings.filter(
-    b => b.providerId === req.user.userId && b.status === 'completed'
-  );
-  const thisMonthEarnings = completedJobs
-    .filter(b => b.updatedAt >= startOfMonth)
-    .reduce((s, b) => s + b.total, 0);
+    const { data: completedJobs, error } = await supabase
+      .from('bookings')
+      .select('*, booking_items(*)')
+      .eq('provider_id', req.user.userId)
+      .eq('status', 'completed')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
 
-  res.json({
-    totalEarnings: profile.totalEarnings,
-    thisMonthEarnings,
-    jobsCompleted: profile.jobsCompleted,
-    rating: profile.rating,
-    category: profile.category,
-    recentJobs: completedJobs
-      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-      .slice(0, 10)
-      .map(b => ({ ...b, items: db.data.booking_items.filter(i => i.bookingId === b.id) })),
-  });
+    const thisMonthEarnings = completedJobs
+      .filter(b => b.updated_at >= startOfMonth)
+      .reduce((s, b) => s + Number(b.total), 0);
+
+    res.json({
+      totalEarnings: Number(profile.total_earnings),
+      thisMonthEarnings,
+      jobsCompleted: profile.jobs_completed,
+      rating: Number(profile.rating),
+      category: profile.category,
+      recentJobs: completedJobs.slice(0, 10).map(mapBooking),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Gemini chat proxy ────────────────────────────────────────────────────────
