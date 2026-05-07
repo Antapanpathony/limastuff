@@ -36,6 +36,8 @@
     tax numeric not null,
     fee numeric not null,
     total numeric not null,
+    payment_status text not null default 'unpaid',
+    payment_intent_id text,
     created_at timestamptz default now(),
     updated_at timestamptz default now()
   );
@@ -49,11 +51,16 @@
     qty integer not null
   );
 
-  -- One satisfaction rating per booking (set after completion)
-  create table booking_ratings (
-    booking_id uuid primary key references bookings(id),
+  -- Unified ratings table: customers rate providers, providers rate customers
+  create table ratings (
+    id uuid primary key default gen_random_uuid(),
+    booking_id uuid references bookings(id),
+    rater_id uuid references users(id),
+    ratee_id uuid references users(id),
     stars integer not null check (stars between 1 and 5),
-    created_at timestamptz default now()
+    type text not null check (type in ('provider_service', 'customer_behavior')),
+    created_at timestamptz default now(),
+    unique(booking_id, type)
   );
 
   -- Admin-created surveys sent to users
@@ -62,7 +69,7 @@
     title text not null,
     description text default '',
     questions jsonb not null default '[]',
-    -- questions format: [{id, text, type: 'rating'|'text'|'choice', options?: string[]}]
+    -- questions: [{id, text, type: 'rating'|'text'|'choice', options?: string[]}]
     active boolean default true,
     created_at timestamptz default now()
   );
@@ -72,7 +79,7 @@
     id uuid primary key default gen_random_uuid(),
     survey_id uuid references surveys(id),
     user_id uuid references users(id),
-    answers jsonb not null default '{}',  -- {questionId: value}
+    answers jsonb not null default '{}',
     created_at timestamptz default now(),
     unique(survey_id, user_id)
   );
@@ -90,11 +97,15 @@
   alter table provider_profiles enable row level security;
   alter table bookings enable row level security;
   alter table booking_items enable row level security;
-  alter table booking_ratings enable row level security;
+  alter table ratings enable row level security;
   alter table surveys enable row level security;
   alter table survey_responses enable row level security;
 
-  -- To promote a user to admin (run once for your first admin):
+  -- Migration: if you already created booking_ratings from a previous version, run:
+  -- drop table if exists booking_ratings;
+  -- then create the ratings table above.
+
+  -- To promote the first admin:
   -- update users set role = 'admin' where email = 'admin@example.com';
 */
 
@@ -113,34 +124,21 @@ const supabase = createClient(
 const JWT_SECRET = process.env.JWT_SECRET || 'peruserv-dev-secret-2024';
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-// ─── Row mappers (snake_case DB → camelCase API) ──────────────────────────────
+// ─── Row mappers ──────────────────────────────────────────────────────────────
 const mapUser = (u) => ({
-  id: u.id,
-  email: u.email,
-  name: u.name,
-  role: u.role,
-  createdAt: u.created_at,
+  id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.created_at,
 });
 
 const mapProfile = (p) => p ? ({
-  id: p.id,
-  userId: p.user_id,
-  bio: p.bio,
-  category: p.category,
-  hourlyRate: p.hourly_rate,
-  rating: p.rating,
-  jobsCompleted: p.jobs_completed,
-  totalEarnings: p.total_earnings,
+  id: p.id, userId: p.user_id, bio: p.bio, category: p.category,
+  hourlyRate: p.hourly_rate, rating: p.rating,
+  jobsCompleted: p.jobs_completed, totalEarnings: p.total_earnings,
   createdAt: p.created_at,
 }) : null;
 
 const mapItem = (i) => ({
-  id: i.id,
-  bookingId: i.booking_id,
-  serviceId: i.service_id,
-  serviceName: i.service_name,
-  price: Number(i.price),
-  qty: i.qty,
+  id: i.id, bookingId: i.booking_id, serviceId: i.service_id,
+  serviceName: i.service_name, price: Number(i.price), qty: i.qty,
 });
 
 const mapBooking = (b) => ({
@@ -157,14 +155,17 @@ const mapBooking = (b) => ({
   tax: Number(b.tax),
   fee: Number(b.fee),
   total: Number(b.total),
+  paymentStatus: b.payment_status,
   createdAt: b.created_at,
   updatedAt: b.updated_at,
   items: (b.booking_items || []).map(mapItem),
   customerName: b.customer?.name || 'Customer',
-  rating: b.booking_ratings?.[0]?.stars ?? null,
+  // Ratings: customer→provider service quality, provider→customer behavior
+  serviceRating: (b.ratings || []).find(r => r.type === 'provider_service')?.stars ?? null,
+  customerRating: (b.ratings || []).find(r => r.type === 'customer_behavior')?.stars ?? null,
 });
 
-// ─── App setup ────────────────────────────────────────────────────────────────
+// ─── App ──────────────────────────────────────────────────────────────────────
 export const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
@@ -173,23 +174,19 @@ app.use(express.json());
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token' });
-  }
+  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
+  catch { res.status(401).json({ error: 'Invalid or expired token' }); }
 };
 
-const requireProvider = (req, res, next) => {
-  if (req.user.role !== 'provider') return res.status(403).json({ error: 'Provider access required' });
-  next();
-};
+const requireProvider = (req, res, next) =>
+  req.user.role !== 'provider'
+    ? res.status(403).json({ error: 'Provider access required' })
+    : next();
 
-const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
-  next();
-};
+const requireAdmin = (req, res, next) =>
+  req.user.role !== 'admin'
+    ? res.status(403).json({ error: 'Admin access required' })
+    : next();
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 app.post('/api/auth/register', async (req, res) => {
@@ -205,8 +202,7 @@ app.post('/api/auth/register', async (req, res) => {
     const { data: user, error: userErr } = await supabase
       .from('users')
       .insert({ email, name, role, password: hashedPass })
-      .select('id, email, name, role, created_at')
-      .single();
+      .select('id, email, name, role, created_at').single();
     if (userErr) throw userErr;
 
     let providerProfile = null;
@@ -214,17 +210,14 @@ app.post('/api/auth/register', async (req, res) => {
       const { data: profile, error: profErr } = await supabase
         .from('provider_profiles')
         .insert({ user_id: user.id, bio: bio || '', category, hourly_rate: Number(hourlyRate) || 0 })
-        .select()
-        .single();
+        .select().single();
       if (profErr) throw profErr;
       providerProfile = mapProfile(profile);
     }
 
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { ...mapUser(user), providerProfile } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -241,9 +234,7 @@ app.post('/api/auth/login', async (req, res) => {
     const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
     const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { ...mapUser(user), providerProfile: mapProfile(profile) } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/auth/me', auth, async (req, res) => {
@@ -252,93 +243,88 @@ app.get('/api/auth/me', auth, async (req, res) => {
       .from('users').select('id, email, name, role, created_at')
       .eq('id', req.user.userId).maybeSingle();
     if (!user) return res.status(404).json({ error: 'User not found' });
-
     const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
     res.json({ ...mapUser(user), providerProfile: mapProfile(profile) });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── Customer booking routes ──────────────────────────────────────────────────
+// ─── Booking routes ───────────────────────────────────────────────────────────
 app.post('/api/bookings', auth, async (req, res) => {
   try {
     const { cart, district, address, datetime, lang } = req.body;
-    if (!cart || !cart.length) return res.status(400).json({ error: 'Cart is empty' });
+    if (!cart?.length) return res.status(400).json({ error: 'Cart is empty' });
 
     const subtotal = cart.reduce((s, i) => s + i.svc.price * i.qty, 0);
     const tax = subtotal * 0.18;
     const fee = 2;
-    const total = subtotal + tax + fee;
-    const code = crypto.randomBytes(4).toString('hex').toUpperCase();
-    const serviceCategory = cart[0]?.svc?.cat || 'general';
 
     const { data: booking, error: bookErr } = await supabase
       .from('bookings')
       .insert({
-        code,
+        code: crypto.randomBytes(4).toString('hex').toUpperCase(),
         customer_id: req.user.userId,
-        service_category: serviceCategory,
+        service_category: cart[0]?.svc?.cat || 'general',
         status: 'pending',
+        payment_status: 'unpaid',
         scheduled_date: datetime || null,
         address: address || '',
         district: district || '',
-        subtotal, tax, fee, total,
+        subtotal, tax, fee, total: subtotal + tax + fee,
       })
-      .select()
-      .single();
+      .select().single();
     if (bookErr) throw bookErr;
 
-    const itemRows = cart.map(i => ({
-      booking_id: booking.id,
-      service_id: i.svc.id,
-      service_name: i.svc.name[lang] || i.svc.name.es,
-      price: i.svc.price,
-      qty: i.qty,
-    }));
-    const { data: items, error: itemErr } = await supabase.from('booking_items').insert(itemRows).select();
+    const { data: items, error: itemErr } = await supabase
+      .from('booking_items')
+      .insert(cart.map(i => ({
+        booking_id: booking.id,
+        service_id: i.svc.id,
+        service_name: i.svc.name[lang] || i.svc.name.es,
+        price: i.svc.price,
+        qty: i.qty,
+      })))
+      .select();
     if (itemErr) throw itemErr;
 
     res.json(mapBooking({ ...booking, booking_items: items }));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/bookings', auth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('bookings')
-      .select('*, booking_items(*), booking_ratings(stars)')
+      .select('*, booking_items(*), ratings(stars, type)')
       .eq('customer_id', req.user.userId)
       .order('created_at', { ascending: false });
     if (error) throw error;
     res.json(data.map(mapBooking));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Customer rates the provider's service
 app.post('/api/bookings/:id/rate', auth, async (req, res) => {
   try {
     const { stars } = req.body;
-    if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
-      return res.status(400).json({ error: 'Stars must be an integer between 1 and 5' });
-    }
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5)
+      return res.status(400).json({ error: 'Stars must be an integer 1–5' });
+
     const { data: booking } = await supabase
-      .from('bookings').select('id, status, customer_id')
+      .from('bookings').select('id, status, provider_id, customer_id')
       .eq('id', req.params.id).eq('customer_id', req.user.userId).maybeSingle();
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    if (booking.status !== 'completed') return res.status(400).json({ error: 'Can only rate completed bookings' });
+    if (booking.status !== 'completed') return res.status(400).json({ error: 'Booking is not completed yet' });
 
-    const { error } = await supabase
-      .from('booking_ratings')
-      .upsert({ booking_id: booking.id, stars }, { onConflict: 'booking_id' });
+    const { error } = await supabase.from('ratings').upsert({
+      booking_id: booking.id,
+      rater_id: req.user.userId,
+      ratee_id: booking.provider_id,
+      stars,
+      type: 'provider_service',
+    }, { onConflict: 'booking_id,type' });
     if (error) throw error;
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Provider routes ──────────────────────────────────────────────────────────
@@ -356,43 +342,36 @@ app.get('/api/provider/available', auth, requireProvider, async (req, res) => {
       .order('created_at', { ascending: false });
     if (error) throw error;
     res.json(data.map(mapBooking));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/provider/jobs', auth, requireProvider, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('bookings')
-      .select('*, booking_items(*), customer:users!customer_id(name)')
+      .select('*, booking_items(*), ratings(stars, type), customer:users!customer_id(name)')
       .eq('provider_id', req.user.userId)
       .order('updated_at', { ascending: false });
     if (error) throw error;
     res.json(data.map(mapBooking));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/provider/jobs/:id/accept', auth, requireProvider, async (req, res) => {
   try {
-    const { data: booking } = await supabase
+    const { data: existing } = await supabase
       .from('bookings').select('id, status').eq('id', req.params.id).maybeSingle();
-    if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    if (booking.status !== 'pending') return res.status(400).json({ error: 'Job is no longer available' });
+    if (!existing) return res.status(404).json({ error: 'Booking not found' });
+    if (existing.status !== 'pending') return res.status(400).json({ error: 'Job is no longer available' });
 
     const { data, error } = await supabase
       .from('bookings')
       .update({ provider_id: req.user.userId, status: 'accepted', updated_at: new Date().toISOString() })
       .eq('id', req.params.id)
-      .select('*, booking_items(*)')
-      .single();
+      .select('*, booking_items(*)').single();
     if (error) throw error;
     res.json(mapBooking(data));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.put('/api/provider/jobs/:id/status', auth, requireProvider, async (req, res) => {
@@ -404,16 +383,14 @@ app.put('/api/provider/jobs/:id/status', auth, requireProvider, async (req, res)
     if (!booking) return res.status(404).json({ error: 'Job not found' });
 
     const transitions = { accepted: ['in_progress'], in_progress: ['completed'] };
-    if (!transitions[booking.status]?.includes(status)) {
-      return res.status(400).json({ error: `Cannot change from ${booking.status} to ${status}` });
-    }
+    if (!transitions[booking.status]?.includes(status))
+      return res.status(400).json({ error: `Cannot transition from ${booking.status} to ${status}` });
 
     const { data, error } = await supabase
       .from('bookings')
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', req.params.id)
-      .select('*, booking_items(*)')
-      .single();
+      .select('*, booking_items(*), ratings(stars, type)').single();
     if (error) throw error;
 
     if (status === 'completed') {
@@ -422,11 +399,33 @@ app.put('/api/provider/jobs/:id/status', auth, requireProvider, async (req, res)
         p_earnings: Number(booking.total),
       });
     }
-
     res.json(mapBooking(data));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Provider rates the customer's behavior
+app.post('/api/provider/jobs/:id/rate-customer', auth, requireProvider, async (req, res) => {
+  try {
+    const { stars } = req.body;
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5)
+      return res.status(400).json({ error: 'Stars must be an integer 1–5' });
+
+    const { data: booking } = await supabase
+      .from('bookings').select('id, status, customer_id')
+      .eq('id', req.params.id).eq('provider_id', req.user.userId).maybeSingle();
+    if (!booking) return res.status(404).json({ error: 'Job not found' });
+    if (booking.status !== 'completed') return res.status(400).json({ error: 'Job is not completed yet' });
+
+    const { error } = await supabase.from('ratings').upsert({
+      booking_id: booking.id,
+      rater_id: req.user.userId,
+      ratee_id: booking.customer_id,
+      stars,
+      type: 'customer_behavior',
+    }, { onConflict: 'booking_id,type' });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
@@ -444,24 +443,47 @@ app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
       .order('updated_at', { ascending: false });
     if (error) throw error;
 
-    const thisMonthEarnings = completedJobs
-      .filter(b => b.updated_at >= startOfMonth)
-      .reduce((s, b) => s + Number(b.total), 0);
-
     res.json({
       totalEarnings: Number(profile.total_earnings),
-      thisMonthEarnings,
+      thisMonthEarnings: completedJobs
+        .filter(b => b.updated_at >= startOfMonth)
+        .reduce((s, b) => s + Number(b.total), 0),
       jobsCompleted: profile.jobs_completed,
       rating: Number(profile.rating),
       category: profile.category,
       recentJobs: completedJobs.slice(0, 10).map(mapBooking),
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── Survey routes (for users) ────────────────────────────────────────────────
+// ─── Profile ratings ──────────────────────────────────────────────────────────
+app.get('/api/profile/ratings', auth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('ratings')
+      .select('stars, type, created_at, booking:bookings(code)')
+      .eq('ratee_id', req.user.userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const avg = (arr) => arr.length ? arr.reduce((s, r) => s + r.stars, 0) / arr.length : 0;
+    const fmt = (arr) => arr.slice(0, 8).map(r => ({
+      stars: r.stars,
+      bookingCode: r.booking?.code,
+      createdAt: r.created_at,
+    }));
+
+    const asCustomer = (data || []).filter(r => r.type === 'customer_behavior');
+    const asProvider = (data || []).filter(r => r.type === 'provider_service');
+
+    res.json({
+      asCustomer: { average: avg(asCustomer), count: asCustomer.length, recent: fmt(asCustomer) },
+      asProvider: { average: avg(asProvider), count: asProvider.length, recent: fmt(asProvider) },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Survey routes ────────────────────────────────────────────────────────────
 app.get('/api/surveys/pending', auth, async (req, res) => {
   try {
     const { data: responded } = await supabase
@@ -473,9 +495,7 @@ app.get('/api/surveys/pending', auth, async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
     res.json(data || []);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/surveys/:id/respond', auth, async (req, res) => {
@@ -486,9 +506,7 @@ app.post('/api/surveys/:id/respond', auth, async (req, res) => {
       .insert({ survey_id: req.params.id, user_id: req.user.userId, answers });
     if (error) throw error;
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Admin routes ─────────────────────────────────────────────────────────────
@@ -498,9 +516,7 @@ app.get('/api/admin/users', auth, requireAdmin, async (req, res) => {
       .from('users').select('id, email, name, role, created_at').order('created_at', { ascending: false });
     if (error) throw error;
     res.json(data.map(mapUser));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.patch('/api/admin/users/:id', auth, requireAdmin, async (req, res) => {
@@ -512,9 +528,7 @@ app.patch('/api/admin/users/:id', auth, requireAdmin, async (req, res) => {
       .select('id, email, name, role, created_at').single();
     if (error) throw error;
     res.json(mapUser(data));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
@@ -522,14 +536,11 @@ app.get('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
     const { data: surveys, error } = await supabase
       .from('surveys').select('*').order('created_at', { ascending: false });
     if (error) throw error;
-
     const { data: counts } = await supabase.from('survey_responses').select('survey_id');
     const countMap = {};
     (counts || []).forEach(r => { countMap[r.survey_id] = (countMap[r.survey_id] || 0) + 1; });
     res.json(surveys.map(s => ({ ...s, responseCount: countMap[s.id] || 0 })));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
@@ -540,9 +551,7 @@ app.post('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
       .from('surveys').insert({ title, description: description || '', questions }).select().single();
     if (error) throw error;
     res.json({ ...data, responseCount: 0 });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.patch('/api/admin/surveys/:id', auth, requireAdmin, async (req, res) => {
@@ -552,23 +561,26 @@ app.patch('/api/admin/surveys/:id', auth, requireAdmin, async (req, res) => {
       .from('surveys').update({ active }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/admin/ratings', auth, requireAdmin, async (req, res) => {
   try {
-    const { data, error } = await supabase.from('booking_ratings').select('stars');
+    const { data, error } = await supabase.from('ratings').select('stars, type');
     if (error) throw error;
-    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    (data || []).forEach(r => counts[r.stars]++);
-    const total = data?.length || 0;
-    const average = total ? data.reduce((s, r) => s + r.stars, 0) / total : 0;
-    res.json({ counts, total, average });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+
+    const aggregate = (arr) => {
+      const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      arr.forEach(r => counts[r.stars]++);
+      const total = arr.length;
+      return { counts, total, average: total ? arr.reduce((s, r) => s + r.stars, 0) / total : 0 };
+    };
+
+    res.json({
+      providerService: aggregate((data || []).filter(r => r.type === 'provider_service')),
+      customerBehavior: aggregate((data || []).filter(r => r.type === 'customer_behavior')),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── Gemini chat proxy ────────────────────────────────────────────────────────
@@ -581,7 +593,5 @@ app.post('/api/chat', async (req, res) => {
     );
     const data = await response.json();
     res.status(response.status).json(data);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
