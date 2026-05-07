@@ -18,8 +18,7 @@ const request = async (path, options = {}) => {
       }
       throw new Error(`Request failed (${res.status})`);
     }
-    const data = await res.json();
-    return data;
+    return res.json();
   } catch (err) {
     if (err.name === 'TypeError' && err.message.includes('fetch')) {
       throw new Error('Cannot connect to server. Make sure the backend is running.');
@@ -46,7 +45,11 @@ export const api = {
   getMyJobs: () => request('/provider/jobs'),
   acceptJob: (id) => request(`/provider/jobs/${id}/accept`, { method: 'PUT' }),
   updateJobStatus: (id, status) => request(`/provider/jobs/${id}/status`, { method: 'PUT', ...body({ status }) }),
+  rateCustomer: (id, stars) => request(`/provider/jobs/${id}/rate-customer`, { method: 'POST', ...body({ stars }) }),
   getEarnings: () => request('/provider/earnings'),
+
+  // Ratings (own profile)
+  getMyRatings: () => request('/profile/ratings'),
 
   // Surveys
   getPendingSurveys: () => request('/surveys/pending'),

@@ -155,8 +155,10 @@ const DICT = {
     tax: "IGV (18%)",
     fee: "Tarifa",
     total: "Total",
-    confirm_btn: "Confirmar y Pagar",
+    confirm_btn: "Confirmar Reserva",
     processing: "Procesando...",
+    payment_soon_title: "Pago en línea",
+    payment_soon_body: "El pago en línea estará disponible próximamente. Por ahora, acuerda el pago directamente con el maestro al finalizar el servicio.",
     empty_cart: "Tu carrito está vacío",
     explore: "Explorar servicios",
     my_bookings: "Mis Reservas",
@@ -221,8 +223,10 @@ const DICT = {
     tax: "Tax (18%)",
     fee: "Service Fee",
     total: "Total",
-    confirm_btn: "Confirm & Pay",
+    confirm_btn: "Confirm Booking",
     processing: "Processing...",
+    payment_soon_title: "Online Payment",
+    payment_soon_body: "Online payment is coming soon. For now, arrange payment directly with your provider when the service is complete.",
     empty_cart: "Your cart is empty",
     explore: "Explore services",
     my_bookings: "My Bookings",
@@ -276,7 +280,9 @@ const ls = {
 // ─── App Component ─────────────────────────────────────────────────────────
 export default function App() {
   const [lang, setLang] = useState(() => ls.get("ps_lang") || "es");
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(() =>
+    window.location.pathname === '/admin' ? 'admin' : 'home'
+  );
   const [catSlug, setCatSlug] = useState(null);
   const [user, setUser] = useState(() => ls.get("ps_user"));
   const [cart, setCart] = useState([]);
@@ -293,6 +299,13 @@ export default function App() {
     api.getPendingSurveys().then(setPendingSurveys).catch(() => {});
   }, [user]);
 
+  // Sync browser back/forward with /admin URL
+  useEffect(() => {
+    const onPop = () => setPage(window.location.pathname === '/admin' ? 'admin' : 'home');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   const notify = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
@@ -302,6 +315,8 @@ export default function App() {
     setPage(p);
     if (opts.cat) setCatSlug(opts.cat);
     window.scrollTo(0, 0);
+    const url = p === 'admin' ? '/admin' : '/';
+    if (window.location.pathname !== url) history.pushState({}, '', url);
   };
 
   const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
@@ -820,6 +835,13 @@ function CheckoutPage({ cart, user, nav, clearCart, setQty, notify, t, lang, tog
           </div>
         </div>
 
+        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+          <h3 className="font-bold text-gray-800 mb-3">💳 {t("payment_soon_title")}</h3>
+          <div className="bg-gray-50 rounded-xl p-4 border border-dashed border-gray-200">
+            <p className="text-gray-400 text-sm leading-relaxed">{t("payment_soon_body")}</p>
+          </div>
+        </div>
+
         <button
           onClick={handlePay}
           disabled={loading}
@@ -844,7 +866,7 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
     api.getBookings()
       .then((data) => {
         setBookings(data);
-        const unrated = data.find(b => b.status === "completed" && !b.rating);
+        const unrated = data.find(b => b.status === "completed" && !b.serviceRating);
         if (unrated) setRatingBookingId(unrated.id);
       })
       .catch((err) => setError(err.message))
@@ -932,9 +954,9 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
               <div className="flex justify-between mt-4 pt-4 border-t border-gray-50 font-black text-gray-900 items-center">
                 <span>Total</span>
                 <div className="flex items-center gap-3">
-                  {b.rating && (
+                  {b.serviceRating && (
                     <span className="text-amber-400 text-sm font-bold">
-                      {"★".repeat(b.rating)}{"☆".repeat(5 - b.rating)}
+                      {"★".repeat(b.serviceRating)}{"☆".repeat(5 - b.serviceRating)}
                     </span>
                   )}
                   <span>S/ {b.total.toFixed(2)}</span>
@@ -948,7 +970,70 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
   );
 }
 
+function RatingsSummary({ lang }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getMyRatings().then(setData).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="flex justify-center py-12">
+      <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  const Section = ({ title, badge, info }) => (
+    <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+      <div className="flex items-center gap-2 mb-4">
+        <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${badge}`}>{title}</span>
+        {info.count > 0 && (
+          <span className="text-gray-400 text-xs">{info.count} {lang === "es" ? "reseñas" : "reviews"}</span>
+        )}
+      </div>
+      {info.count === 0 ? (
+        <p className="text-gray-300 text-sm font-bold text-center py-4">
+          {lang === "es" ? "Sin reseñas aún" : "No reviews yet"}
+        </p>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-2 mb-4">
+            <span className="text-4xl font-black text-amber-500">{info.average.toFixed(1)}</span>
+            <span className="text-amber-400 text-xl">{"★".repeat(Math.round(info.average))}{"☆".repeat(5 - Math.round(info.average))}</span>
+          </div>
+          <div className="space-y-2">
+            {info.recent.map((r, i) => (
+              <div key={i} className="flex justify-between items-center text-xs">
+                <span className="text-gray-400">#{r.bookingCode}</span>
+                <span className="text-amber-400">{"★".repeat(r.stars)}{"☆".repeat(5 - r.stars)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <Section
+        title={lang === "es" ? "Buen Cliente" : "Good Customer"}
+        badge="bg-blue-100 text-blue-700"
+        info={data?.asCustomer || { average: 0, count: 0, recent: [] }}
+      />
+      <Section
+        title={lang === "es" ? "Buen Proveedor" : "Good Seller"}
+        badge="bg-indigo-100 text-indigo-700"
+        info={data?.asProvider || { average: 0, count: 0, recent: [] }}
+      />
+    </div>
+  );
+}
+
 function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
+  const [tab, setTab] = useState("info");
+
   if (!user)
     return (
       <div className="text-center bg-white p-12 rounded-3xl border border-dashed border-gray-200 m-4 mt-8">
@@ -980,18 +1065,40 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
           )}
         </div>
 
-        {user.role === "provider" && user.providerProfile && (
-          <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-5 text-white">
-            <p className="text-indigo-200 text-xs font-black uppercase tracking-widest mb-3">
-              {lang === "es" ? "Resumen de Ganancias" : "Earnings Summary"}
-            </p>
-            <p className="text-3xl font-black">S/ {user.providerProfile.totalEarnings?.toFixed(2) || "0.00"}</p>
-            <div className="flex gap-4 mt-2 text-sm text-indigo-200">
-              <span>{user.providerProfile.jobsCompleted || 0} {lang === "es" ? "trabajos" : "jobs"}</span>
-              <span>⭐ {user.providerProfile.rating?.toFixed(1) || "5.0"}</span>
-            </div>
-          </div>
-        )}
+        {/* Tab bar */}
+        <div className="flex gap-2 bg-gray-100 p-1 rounded-2xl">
+          {[
+            { id: "info", label: lang === "es" ? "Perfil" : "Profile" },
+            { id: "ratings", label: lang === "es" ? "Reseñas" : "Ratings" },
+          ].map(tb => (
+            <button
+              key={tb.id}
+              onClick={() => setTab(tb.id)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                tab === tb.id ? "bg-white shadow text-indigo-600" : "text-gray-400"
+              }`}
+            >
+              {tb.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "ratings" && <RatingsSummary lang={lang} />}
+
+        {tab === "info" && (
+          <>
+            {user.role === "provider" && user.providerProfile && (
+              <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-5 text-white">
+                <p className="text-indigo-200 text-xs font-black uppercase tracking-widest mb-3">
+                  {lang === "es" ? "Resumen de Ganancias" : "Earnings Summary"}
+                </p>
+                <p className="text-3xl font-black">S/ {user.providerProfile.totalEarnings?.toFixed(2) || "0.00"}</p>
+                <div className="flex gap-4 mt-2 text-sm text-indigo-200">
+                  <span>{user.providerProfile.jobsCompleted || 0} {lang === "es" ? "trabajos" : "jobs"}</span>
+                  <span>⭐ {user.providerProfile.rating?.toFixed(1) || "5.0"}</span>
+                </div>
+              </div>
+            )}
 
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-gray-50">
@@ -1016,6 +1123,8 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
             </button>
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

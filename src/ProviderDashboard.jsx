@@ -3,13 +3,8 @@ import { ChevronLeft, Languages } from "lucide-react";
 import { api } from "./api";
 
 const CATEGORY_ICONS = {
-  cleaning: "✨",
-  plumbing: "🔧",
-  electrician: "⚡",
-  beauty: "✂️",
-  painting: "🎨",
-  moving: "🚛",
-  general: "🔨",
+  cleaning: "✨", plumbing: "🔧", electrician: "⚡",
+  beauty: "✂️", painting: "🎨", moving: "🚛", general: "🔨",
 };
 
 function StatusBadge({ status, lang }) {
@@ -37,9 +32,64 @@ function formatDate(dateStr, lang) {
     return new Date(dateStr).toLocaleString(lang === "es" ? "es-PE" : "en-US", {
       month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
     });
-  } catch {
-    return dateStr;
-  }
+  } catch { return dateStr; }
+}
+
+function RateCustomerModal({ job, lang, onClose }) {
+  const [selected, setSelected] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!selected) return;
+    setSubmitting(true);
+    try {
+      await api.rateCustomer(job.id, selected);
+    } catch {
+      // rating is best-effort
+    } finally {
+      onClose(true);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-6">
+      <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <div className="text-4xl mb-3">👤</div>
+        <h3 className="text-xl font-black text-gray-800 mb-1">
+          {lang === "es" ? `¿Cómo fue ${job.customerName}?` : `How was ${job.customerName}?`}
+        </h3>
+        <p className="text-gray-400 text-sm mb-6">
+          {lang === "es" ? "Califica a este cliente" : "Rate this customer"}
+        </p>
+
+        <div className="flex justify-center gap-2 mb-8">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              onMouseEnter={() => setHover(star)}
+              onMouseLeave={() => setHover(0)}
+              onClick={() => setSelected(star)}
+              className="text-4xl transition-transform active:scale-90"
+            >
+              <span className={(hover || selected) >= star ? "text-amber-400" : "text-gray-200"}>★</span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          disabled={!selected || submitting}
+          className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-40 mb-3"
+        >
+          {submitting ? "…" : (lang === "es" ? "Enviar" : "Submit")}
+        </button>
+        <button onClick={() => onClose(false)} className="text-gray-400 text-sm font-bold hover:text-gray-600">
+          {lang === "es" ? "Omitir" : "Skip"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function ProviderDashboard({ user, nav, lang, toggleLang, notify }) {
@@ -48,6 +98,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
   const [myJobs, setMyJobs] = useState([]);
   const [earnings, setEarnings] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [ratingJob, setRatingJob] = useState(null);
 
   const t = (es, en) => (lang === "es" ? es : en);
 
@@ -69,18 +120,14 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
     }
   }, [notify]);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const handleAccept = async (jobId) => {
     try {
       await api.acceptJob(jobId);
       notify(t("Trabajo aceptado ✓", "Job accepted ✓"));
       fetchAll();
-    } catch (err) {
-      notify(err.message);
-    }
+    } catch (err) { notify(err.message); }
   };
 
   const handleStatusUpdate = async (jobId, newStatus) => {
@@ -89,9 +136,12 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
       if (newStatus === "completed") notify(t("¡Trabajo completado! 🎉", "Job completed! 🎉"));
       else notify(t("Trabajo iniciado ✓", "Job started ✓"));
       fetchAll();
-    } catch (err) {
-      notify(err.message);
-    }
+    } catch (err) { notify(err.message); }
+  };
+
+  const handleRatingClose = (submitted) => {
+    setRatingJob(null);
+    if (submitted) fetchAll();
   };
 
   const activeJobs = myJobs.filter(j => j.status !== "completed");
@@ -105,7 +155,10 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
 
   return (
     <div>
-      {/* Header */}
+      {ratingJob && (
+        <RateCustomerModal job={ratingJob} lang={lang} onClose={handleRatingClose} />
+      )}
+
       <div className="sticky top-0 bg-white px-4 pt-4 pb-3 border-b border-gray-100 z-20">
         <div className="flex justify-between items-center mb-3">
           <div>
@@ -113,8 +166,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
               {t("Panel del Maestro", "Provider Dashboard")}
             </h1>
             <p className="text-xs text-gray-400">
-              {CATEGORY_ICONS[user?.providerProfile?.category] || "🔨"}{" "}
-              {user.name}
+              {CATEGORY_ICONS[user?.providerProfile?.category] || "🔨"} {user.name}
             </p>
           </div>
           <button
@@ -155,7 +207,6 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
           </div>
         ) : (
           <>
-            {/* Available Jobs */}
             {tab === "available" && (
               <div className="space-y-4">
                 {available.length === 0 ? (
@@ -163,10 +214,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
                     <div className="text-5xl mb-4 opacity-20">📋</div>
                     <p className="text-gray-500 font-bold">{t("No hay trabajos disponibles", "No jobs available")}</p>
                     <p className="text-gray-400 text-sm mt-1">{t("Los nuevos trabajos aparecerán aquí", "New jobs will appear here")}</p>
-                    <button
-                      onClick={fetchAll}
-                      className="mt-4 bg-indigo-50 text-indigo-600 px-5 py-2 rounded-xl font-bold text-sm"
-                    >
+                    <button onClick={fetchAll} className="mt-4 bg-indigo-50 text-indigo-600 px-5 py-2 rounded-xl font-bold text-sm">
                       {t("Actualizar", "Refresh")}
                     </button>
                   </div>
@@ -204,7 +252,6 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
               </div>
             )}
 
-            {/* Active Jobs */}
             {tab === "active" && (
               <div className="space-y-4">
                 {activeJobs.length === 0 && completedJobs.length === 0 ? (
@@ -261,13 +308,33 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
                           {t("Completados", "Completed")}
                         </p>
                         {completedJobs.map(job => (
-                          <div key={job.id} className="bg-emerald-50 rounded-xl p-4 border border-emerald-100 mb-3 flex justify-between items-center">
-                            <div>
-                              <p className="text-[10px] font-black text-emerald-600 tracking-widest">#{job.code}</p>
-                              <p className="text-xs text-gray-600 mt-0.5">{job.customerName} · {job.district}</p>
-                              <p className="text-xs text-gray-400">{formatDate(job.updatedAt, lang)}</p>
+                          <div key={job.id} className="bg-emerald-50 rounded-xl p-4 border border-emerald-100 mb-3">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="text-[10px] font-black text-emerald-600 tracking-widest">#{job.code}</p>
+                                <p className="text-xs text-gray-600 mt-0.5">{job.customerName} · {job.district}</p>
+                                <p className="text-xs text-gray-400">{formatDate(job.updatedAt, lang)}</p>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-black text-emerald-700 text-lg block">+S/ {job.total.toFixed(2)}</span>
+                                {job.serviceRating && (
+                                  <span className="text-amber-400 text-xs">{"★".repeat(job.serviceRating)}</span>
+                                )}
+                              </div>
                             </div>
-                            <span className="font-black text-emerald-700 text-lg">+S/ {job.total.toFixed(2)}</span>
+                            {job.customerRating === null && (
+                              <button
+                                onClick={() => setRatingJob(job)}
+                                className="mt-3 w-full text-xs font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 py-2 rounded-lg transition-colors"
+                              >
+                                {t("Calificar cliente", "Rate customer")} ★
+                              </button>
+                            )}
+                            {job.customerRating !== null && (
+                              <p className="mt-2 text-xs text-center text-gray-400">
+                                {t("Cliente calificado", "Customer rated")}: {"★".repeat(job.customerRating)}{"☆".repeat(5 - job.customerRating)}
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -277,7 +344,6 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
               </div>
             )}
 
-            {/* Earnings */}
             {tab === "earnings" && earnings && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
