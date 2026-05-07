@@ -16,9 +16,12 @@ import {
   X,
   Languages,
   Briefcase,
+  ShieldCheck,
+  Star,
 } from "lucide-react";
 import { api } from "./api";
 import ProviderDashboard from "./ProviderDashboard";
+import AdminDashboard from "./AdminDashboard";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const DISTRICTS = [
@@ -279,12 +282,16 @@ export default function App() {
   const [cart, setCart] = useState([]);
   const [showChat, setShowChat] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pendingSurveys, setPendingSurveys] = useState([]);
 
   const t = (key) => DICT[lang][key] || key;
 
+  useEffect(() => { ls.set("ps_lang", lang); }, [lang]);
+
   useEffect(() => {
-    ls.set("ps_lang", lang);
-  }, [lang]);
+    if (!user) { setPendingSurveys([]); return; }
+    api.getPendingSurveys().then(setPendingSurveys).catch(() => {});
+  }, [user]);
 
   const notify = (msg) => {
     setToast(msg);
@@ -395,6 +402,14 @@ export default function App() {
             notify={notify}
           />
         )}
+        {page === "admin" && (
+          <AdminDashboard
+            user={user}
+            nav={nav}
+            lang={lang}
+            toggleLang={toggleLang}
+          />
+        )}
         {page === "profile" && (
           <ProfilePage
             user={user}
@@ -430,7 +445,7 @@ export default function App() {
       )}
 
       {!isAuthPage && (
-        <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 py-2 px-8 flex justify-between items-center z-40">
+        <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-gray-200 py-2 px-6 flex justify-between items-center z-40">
           <NavBtn
             icon={<Home size={22} />}
             label={t("nav_home")}
@@ -446,6 +461,14 @@ export default function App() {
               nav(isProvider ? "provider-dashboard" : "bookings");
             }}
           />
+          {user?.role === "admin" && (
+            <NavBtn
+              icon={<ShieldCheck size={22} />}
+              label={lang === "es" ? "Admin" : "Admin"}
+              active={page === "admin"}
+              onClick={() => nav("admin")}
+            />
+          )}
           <NavBtn
             icon={<User size={22} />}
             label={t("nav_profile")}
@@ -453,6 +476,17 @@ export default function App() {
             onClick={() => (user ? nav("profile") : nav("login"))}
           />
         </nav>
+      )}
+
+      {pendingSurveys.length > 0 && user && (
+        <SurveyModal
+          survey={pendingSurveys[0]}
+          lang={lang}
+          onClose={(submitted) => {
+            if (submitted) api.respondToSurvey(pendingSurveys[0].id, submitted).catch(() => {});
+            setPendingSurveys(s => s.slice(1));
+          }}
+        />
       )}
 
       {!showChat && !isAuthPage && (
@@ -802,14 +836,22 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [ratingBookingId, setRatingBookingId] = useState(null);
 
-  useEffect(() => {
+  const loadBookings = () => {
     if (!user) { setLoading(false); return; }
+    setLoading(true);
     api.getBookings()
-      .then(setBookings)
+      .then((data) => {
+        setBookings(data);
+        const unrated = data.find(b => b.status === "completed" && !b.rating);
+        if (unrated) setRatingBookingId(unrated.id);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [user]);
+  };
+
+  useEffect(() => { loadBookings(); }, [user]);
 
   const statusStyle = {
     pending: "bg-amber-100 text-amber-700",
@@ -825,6 +867,16 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
   return (
     <div>
       <Header title={t("my_bookings")} nav={nav} toggleLang={toggleLang} lang={lang} />
+      {ratingBookingId && (
+        <RatingModal
+          bookingId={ratingBookingId}
+          lang={lang}
+          onClose={() => {
+            setRatingBookingId(null);
+            loadBookings();
+          }}
+        />
+      )}
       <div className="p-4 space-y-4">
         {!user ? (
           <div className="text-center bg-white p-12 rounded-3xl border border-dashed border-gray-200">
@@ -877,9 +929,16 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between mt-4 pt-4 border-t border-gray-50 font-black text-gray-900">
+              <div className="flex justify-between mt-4 pt-4 border-t border-gray-50 font-black text-gray-900 items-center">
                 <span>Total</span>
-                <span>S/ {b.total.toFixed(2)}</span>
+                <div className="flex items-center gap-3">
+                  {b.rating && (
+                    <span className="text-amber-400 text-sm font-bold">
+                      {"★".repeat(b.rating)}{"☆".repeat(5 - b.rating)}
+                    </span>
+                  )}
+                  <span>S/ {b.total.toFixed(2)}</span>
+                </div>
               </div>
             </div>
           ))
@@ -1162,6 +1221,162 @@ function RegisterPage({ login, nav, t, lang }) {
         {t("have_account")}{" "}
         <button onClick={() => nav("login")} className="text-indigo-600 font-black">{t("login_btn")}</button>
       </p>
+    </div>
+  );
+}
+
+// ─── Rating Modal ──────────────────────────────────────────────────────────
+function RatingModal({ bookingId, lang, onClose }) {
+  const [selected, setSelected] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!selected) return;
+    setSubmitting(true);
+    try {
+      await api.rateBooking(bookingId, selected);
+    } catch {
+      // silently ignore — rating is optional
+    } finally {
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-6">
+      <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center">
+        <div className="text-4xl mb-3">🎉</div>
+        <h3 className="text-xl font-black text-gray-800 mb-1">
+          {lang === "es" ? "¿Cómo fue el servicio?" : "How was the service?"}
+        </h3>
+        <p className="text-gray-400 text-sm mb-6">
+          {lang === "es" ? "Tu opinión nos ayuda a mejorar" : "Your feedback helps us improve"}
+        </p>
+
+        <div className="flex justify-center gap-2 mb-8">
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={star}
+              onMouseEnter={() => setHover(star)}
+              onMouseLeave={() => setHover(0)}
+              onClick={() => setSelected(star)}
+              className="text-4xl transition-transform active:scale-90"
+            >
+              <span className={(hover || selected) >= star ? "text-amber-400" : "text-gray-200"}>★</span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          disabled={!selected || submitting}
+          className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-40 mb-3"
+        >
+          {submitting ? "…" : (lang === "es" ? "Enviar" : "Submit")}
+        </button>
+        <button onClick={onClose} className="text-gray-400 text-sm font-bold hover:text-gray-600">
+          {lang === "es" ? "Omitir" : "Skip"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Survey Modal ──────────────────────────────────────────────────────────
+function SurveyModal({ survey, lang, onClose }) {
+  const [answers, setAnswers] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const setAnswer = (id, value) => setAnswers((a) => ({ ...a, [id]: value }));
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      onClose(answers);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center">
+      <div className="bg-white w-full max-w-md max-h-[85vh] rounded-t-[2.5rem] sm:rounded-3xl flex flex-col shadow-2xl overflow-hidden">
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-700 p-6 flex justify-between items-center shrink-0">
+          <div>
+            <h3 className="text-white font-black text-lg leading-tight">{survey.title}</h3>
+            {survey.description && (
+              <p className="text-indigo-100 text-xs mt-1 opacity-80">{survey.description}</p>
+            )}
+          </div>
+          <button onClick={() => onClose(null)} className="w-9 h-9 bg-white/10 text-white rounded-full flex items-center justify-center">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {survey.questions.map((q) => (
+            <div key={q.id}>
+              <p className="font-bold text-gray-800 text-sm mb-3">{q.text}</p>
+              {q.type === "rating" && (
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setAnswer(q.id, s)}
+                      className="text-3xl transition-transform active:scale-90"
+                    >
+                      <span className={answers[q.id] >= s ? "text-amber-400" : "text-gray-200"}>★</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {q.type === "text" && (
+                <textarea
+                  rows={3}
+                  className="w-full bg-gray-50 border-0 rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder={lang === "es" ? "Tu respuesta…" : "Your answer…"}
+                  value={answers[q.id] || ""}
+                  onChange={(e) => setAnswer(q.id, e.target.value)}
+                />
+              )}
+              {q.type === "choice" && (
+                <div className="space-y-2">
+                  {(q.options || []).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setAnswer(q.id, opt)}
+                      className={`w-full text-left px-4 py-3 rounded-xl text-sm font-bold border-2 transition-all ${
+                        answers[q.id] === opt
+                          ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                          : "border-gray-100 bg-gray-50 text-gray-600"
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="p-4 bg-white border-t border-gray-100 flex gap-2">
+          <button
+            onClick={() => onClose(null)}
+            className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-500 font-bold text-sm hover:bg-gray-50"
+          >
+            {lang === "es" ? "Omitir" : "Skip"}
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="flex-1 py-3 rounded-2xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {submitting ? "…" : (lang === "es" ? "Enviar" : "Submit")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

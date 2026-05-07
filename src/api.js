@@ -39,6 +39,7 @@ export const api = {
   // Customer bookings
   createBooking: (data) => request('/bookings', { method: 'POST', ...body(data) }),
   getBookings: () => request('/bookings'),
+  rateBooking: (id, stars) => request(`/bookings/${id}/rate`, { method: 'POST', ...body({ stars }) }),
 
   // Provider
   getAvailableJobs: () => request('/provider/available'),
@@ -46,4 +47,16 @@ export const api = {
   acceptJob: (id) => request(`/provider/jobs/${id}/accept`, { method: 'PUT' }),
   updateJobStatus: (id, status) => request(`/provider/jobs/${id}/status`, { method: 'PUT', ...body({ status }) }),
   getEarnings: () => request('/provider/earnings'),
+
+  // Surveys
+  getPendingSurveys: () => request('/surveys/pending'),
+  respondToSurvey: (id, answers) => request(`/surveys/${id}/respond`, { method: 'POST', ...body({ answers }) }),
+
+  // Admin
+  adminGetUsers: () => request('/admin/users'),
+  adminUpdateUser: (id, data) => request(`/admin/users/${id}`, { method: 'PATCH', ...body(data) }),
+  adminGetSurveys: () => request('/admin/surveys'),
+  adminCreateSurvey: (data) => request('/admin/surveys', { method: 'POST', ...body(data) }),
+  adminUpdateSurvey: (id, data) => request(`/admin/surveys/${id}`, { method: 'PATCH', ...body(data) }),
+  adminGetRatings: () => request('/admin/ratings'),
 };
