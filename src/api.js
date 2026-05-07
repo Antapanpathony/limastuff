@@ -10,8 +10,15 @@ const request = async (path, options = {}) => {
       },
       ...options,
     });
+    if (!res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      throw new Error(`Request failed (${res.status})`);
+    }
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;
   } catch (err) {
     if (err.name === 'TypeError' && err.message.includes('fetch')) {
