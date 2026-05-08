@@ -48,6 +48,12 @@ export const api = {
   rateCustomer: (id, stars) => request(`/provider/jobs/${id}/rate-customer`, { method: 'POST', ...body({ stars }) }),
   getEarnings: () => request('/provider/earnings'),
 
+  // Profile
+  updateMe: (data) => request('/profile/me', { method: 'PATCH', ...body(data) }),
+  getAddresses: () => request('/profile/addresses'),
+  addAddress: (data) => request('/profile/addresses', { method: 'POST', ...body(data) }),
+  deleteAddress: (id) => request(`/profile/addresses/${id}`, { method: 'DELETE' }),
+
   // Ratings (own profile)
   getMyRatings: () => request('/profile/ratings'),
 
