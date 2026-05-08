@@ -115,6 +115,10 @@ const DICT = {
     bio: "Descripción breve",
     bio_placeholder: "Ej: Gasfitero con 10 años de experiencia en Lima",
     provider_badge: "Modo Maestro",
+    setting_account: "Información de Cuenta",
+    setting_addresses: "Direcciones Guardadas",
+    setting_notifications: "Notificaciones",
+    setting_language: "Idioma",
   },
   en: {
     app_name: "PeruServ",
@@ -183,6 +187,10 @@ const DICT = {
     bio: "Short description",
     bio_placeholder: "Ex: Plumber with 10 years of experience in Lima",
     provider_badge: "Provider Mode",
+    setting_account: "Account Info",
+    setting_addresses: "Saved Addresses",
+    setting_notifications: "Notifications",
+    setting_language: "Language",
   },
 };
 
@@ -1073,12 +1081,18 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
             <h3 className="font-black text-xs text-gray-400 uppercase tracking-widest">{t("settings")}</h3>
           </div>
           <div className="divide-y divide-gray-50">
-            {["Account Info", "Saved Addresses", "Notifications", "Language"].map((item) => (
+            {[
+              { key: "setting_account", onClick: null },
+              { key: "setting_addresses", onClick: null },
+              { key: "setting_notifications", onClick: null },
+              { key: "setting_language", onClick: toggleLang },
+            ].map(({ key, onClick }) => (
               <button
-                key={item}
+                key={key}
+                onClick={onClick || undefined}
                 className="w-full flex justify-between items-center p-5 text-gray-700 font-bold hover:bg-gray-50 text-sm"
               >
-                <span>{item}</span>
+                <span>{t(key)}</span>
                 <ChevronRight size={18} className="text-gray-300" />
               </button>
             ))}
