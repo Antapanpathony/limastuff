@@ -54,6 +54,11 @@ export const api = {
   addAddress: (data) => request('/profile/addresses', { method: 'POST', ...body(data) }),
   deleteAddress: (id) => request(`/profile/addresses/${id}`, { method: 'DELETE' }),
 
+  // Notifications
+  getNotifications: () => request('/notifications'),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () => request('/notifications/read-all', { method: 'PATCH' }),
+
   // Ratings (own profile)
   getMyRatings: () => request('/profile/ratings'),
 
