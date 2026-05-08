@@ -18,6 +18,7 @@ import {
   Briefcase,
   ShieldCheck,
   Star,
+  Trash2,
 } from "lucide-react";
 import { api } from "./api";
 import ProviderDashboard from "./ProviderDashboard";
@@ -119,6 +120,32 @@ const DICT = {
     setting_addresses: "Direcciones Guardadas",
     setting_notifications: "Notificaciones",
     setting_language: "Idioma",
+    acct_title: "Información de Cuenta",
+    acct_name: "Nombre completo",
+    acct_email: "Email",
+    acct_email_note: "El email no se puede cambiar",
+    acct_save: "Guardar cambios",
+    acct_saving: "Guardando...",
+    acct_saved: "¡Cambios guardados!",
+    addr_title: "Direcciones Guardadas",
+    addr_empty: "No tienes direcciones guardadas",
+    addr_add: "Agregar dirección",
+    addr_label: "Etiqueta (ej: Casa, Trabajo)",
+    addr_address: "Dirección",
+    addr_district: "Distrito",
+    addr_save: "Guardar",
+    addr_cancel: "Cancelar",
+    addr_delete: "Eliminar",
+    notif_title: "Notificaciones",
+    notif_bookings: "Actualizaciones de reservas",
+    notif_bookings_sub: "Confirmaciones, cambios de estado y recordatorios",
+    notif_promos: "Promociones y ofertas",
+    notif_promos_sub: "Descuentos especiales y nuevos servicios",
+    notif_reminders: "Recordatorios de servicio",
+    notif_reminders_sub: "Recordatorios 1 hora antes del servicio",
+    notif_newsletter: "Novedades de PeruServ",
+    notif_newsletter_sub: "Actualizaciones de la app y nuevas funciones",
+    notif_saved: "Preferencias guardadas",
   },
   en: {
     app_name: "PeruServ",
@@ -191,6 +218,32 @@ const DICT = {
     setting_addresses: "Saved Addresses",
     setting_notifications: "Notifications",
     setting_language: "Language",
+    acct_title: "Account Info",
+    acct_name: "Full name",
+    acct_email: "Email",
+    acct_email_note: "Email cannot be changed",
+    acct_save: "Save changes",
+    acct_saving: "Saving...",
+    acct_saved: "Changes saved!",
+    addr_title: "Saved Addresses",
+    addr_empty: "No saved addresses yet",
+    addr_add: "Add address",
+    addr_label: "Label (e.g. Home, Work)",
+    addr_address: "Address",
+    addr_district: "District",
+    addr_save: "Save",
+    addr_cancel: "Cancel",
+    addr_delete: "Delete",
+    notif_title: "Notifications",
+    notif_bookings: "Booking updates",
+    notif_bookings_sub: "Confirmations, status changes, and reminders",
+    notif_promos: "Promotions & offers",
+    notif_promos_sub: "Special discounts and new services",
+    notif_reminders: "Service reminders",
+    notif_reminders_sub: "Reminders 1 hour before your service",
+    notif_newsletter: "PeruServ news",
+    notif_newsletter_sub: "App updates and new features",
+    notif_saved: "Preferences saved",
   },
 };
 
@@ -400,6 +453,35 @@ export default function App() {
           <ProfilePage
             user={user}
             logout={handleLogout}
+            nav={nav}
+            notify={notify}
+            t={t}
+            lang={lang}
+            toggleLang={toggleLang}
+          />
+        )}
+        {page === "account-info" && (
+          <AccountInfoPage
+            user={user}
+            setUser={(u) => { ls.set("ps_user", u); setUser(u); }}
+            nav={nav}
+            notify={notify}
+            t={t}
+            lang={lang}
+            toggleLang={toggleLang}
+          />
+        )}
+        {page === "saved-addresses" && (
+          <SavedAddressesPage
+            nav={nav}
+            notify={notify}
+            t={t}
+            lang={lang}
+            toggleLang={toggleLang}
+          />
+        )}
+        {page === "notifications" && (
+          <NotificationsPage
             nav={nav}
             notify={notify}
             t={t}
@@ -1082,9 +1164,9 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
           </div>
           <div className="divide-y divide-gray-50">
             {[
-              { key: "setting_account", onClick: null },
-              { key: "setting_addresses", onClick: null },
-              { key: "setting_notifications", onClick: null },
+              { key: "setting_account", onClick: () => nav("account-info") },
+              { key: "setting_addresses", onClick: () => nav("saved-addresses") },
+              { key: "setting_notifications", onClick: () => nav("notifications") },
               { key: "setting_language", onClick: toggleLang },
             ].map(({ key, onClick }) => (
               <button
@@ -1112,6 +1194,233 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
   );
 }
 
+// ─── Account Info Page ────────────────────────────────────────────────────────
+function AccountInfoPage({ user, setUser, nav, notify, t, lang, toggleLang }) {
+  const [name, setName] = useState(user?.name || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim() || name.trim() === user.name) return;
+    setSaving(true);
+    try {
+      const updated = await api.updateMe({ name: name.trim() });
+      setUser({ ...user, name: updated.name });
+      notify(t("acct_saved"));
+    } catch (e) {
+      notify(`Error: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <Header title={t("acct_title")} nav={nav} back="profile" toggleLang={toggleLang} lang={lang} />
+      <div className="p-4 space-y-4">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 space-y-5">
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">{t("acct_name")}</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">{t("acct_email")}</label>
+            <input
+              value={user?.email || ""}
+              readOnly
+              className="w-full border border-gray-100 rounded-2xl px-4 py-3 text-sm font-medium bg-gray-50 text-gray-400 cursor-not-allowed"
+            />
+            <p className="text-xs text-gray-400 mt-1.5 ml-1">{t("acct_email_note")}</p>
+          </div>
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving || !name.trim() || name.trim() === user?.name}
+          className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-sm shadow-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-40"
+        >
+          {saving ? t("acct_saving") : t("acct_save")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Saved Addresses Page ─────────────────────────────────────────────────────
+function SavedAddressesPage({ nav, notify, t, lang, toggleLang }) {
+  const [addresses, setAddresses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ label: "", address: "", district: "" });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.getAddresses()
+      .then(setAddresses)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleAdd = async () => {
+    if (!form.address.trim() || !form.district.trim()) return;
+    setSaving(true);
+    try {
+      const added = await api.addAddress(form);
+      setAddresses((p) => [...p, added]);
+      setForm({ label: "", address: "", district: "" });
+      setShowForm(false);
+    } catch (e) {
+      notify(`Error: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await api.deleteAddress(id);
+      setAddresses((p) => p.filter((a) => a.id !== id));
+    } catch (e) {
+      notify(`Error: ${e.message}`);
+    }
+  };
+
+  const LIMA_DISTRICTS = ["Miraflores","San Isidro","Barranco","Surco","La Molina","San Borja","Magdalena","Jesús María","Lince","Pueblo Libre","Breña","Rímac","San Miguel","Callao","Ate","Villa El Salvador","Villa María del Triunfo","San Juan de Miraflores","Chorrillos","Lurín"];
+
+  return (
+    <div>
+      <Header title={t("addr_title")} nav={nav} back="profile" toggleLang={toggleLang} lang={lang} />
+      <div className="p-4 space-y-3">
+        {loading ? (
+          <div className="text-center py-12 text-gray-400 text-sm font-bold">...</div>
+        ) : addresses.length === 0 && !showForm ? (
+          <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center">
+            <MapPin size={36} className="mx-auto text-gray-300 mb-3" />
+            <p className="text-gray-400 font-bold text-sm">{t("addr_empty")}</p>
+          </div>
+        ) : (
+          addresses.map((a) => (
+            <div key={a.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex justify-between items-start">
+              <div>
+                <p className="font-black text-gray-800 text-sm">{a.label || "Home"}</p>
+                <p className="text-gray-500 text-xs mt-0.5">{a.address}</p>
+                <p className="text-indigo-500 text-xs font-bold mt-0.5">{a.district}</p>
+              </div>
+              <button
+                onClick={() => handleDelete(a.id)}
+                className="text-rose-400 hover:text-rose-600 p-1"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))
+        )}
+
+        {showForm ? (
+          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-5 space-y-4">
+            <input
+              value={form.label}
+              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+              placeholder={t("addr_label")}
+              className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <input
+              value={form.address}
+              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              placeholder={t("addr_address")}
+              className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <select
+              value={form.district}
+              onChange={(e) => setForm((f) => ({ ...f, district: e.target.value }))}
+              className="w-full border border-gray-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+            >
+              <option value="">{t("addr_district")}</option>
+              {LIMA_DISTRICTS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowForm(false); setForm({ label: "", address: "", district: "" }); }}
+                className="flex-1 border border-gray-200 text-gray-500 py-3 rounded-2xl font-bold text-sm"
+              >
+                {t("addr_cancel")}
+              </button>
+              <button
+                onClick={handleAdd}
+                disabled={saving || !form.address.trim() || !form.district}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-bold text-sm disabled:opacity-40"
+              >
+                {saving ? "..." : t("addr_save")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowForm(true)}
+            className="w-full border-2 border-dashed border-indigo-200 text-indigo-600 font-bold text-sm py-4 rounded-2xl hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus size={18} /> {t("addr_add")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Notifications Page ───────────────────────────────────────────────────────
+function NotificationsPage({ nav, notify, t, lang, toggleLang }) {
+  const STORAGE_KEY = "ps_notif_prefs";
+  const defaults = { bookings: true, promos: false, reminders: true, newsletter: false };
+  const [prefs, setPrefs] = useState(() => {
+    try { return { ...defaults, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") }; }
+    catch { return defaults; }
+  });
+
+  const toggle = (key) => {
+    setPrefs((p) => {
+      const next = { ...p, [key]: !p[key] };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    notify(t("notif_saved"));
+  };
+
+  const items = [
+    { key: "bookings", labelKey: "notif_bookings", subKey: "notif_bookings_sub" },
+    { key: "promos", labelKey: "notif_promos", subKey: "notif_promos_sub" },
+    { key: "reminders", labelKey: "notif_reminders", subKey: "notif_reminders_sub" },
+    { key: "newsletter", labelKey: "notif_newsletter", subKey: "notif_newsletter_sub" },
+  ];
+
+  return (
+    <div>
+      <Header title={t("notif_title")} nav={nav} back="profile" toggleLang={toggleLang} lang={lang} />
+      <div className="p-4">
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm divide-y divide-gray-50 overflow-hidden">
+          {items.map(({ key, labelKey, subKey }) => (
+            <button
+              key={key}
+              onClick={() => toggle(key)}
+              className="w-full flex justify-between items-center p-5 hover:bg-gray-50 text-left"
+            >
+              <div className="flex-1 pr-4">
+                <p className="font-bold text-gray-800 text-sm">{t(labelKey)}</p>
+                <p className="text-gray-400 text-xs mt-0.5">{t(subKey)}</p>
+              </div>
+              <div className={`w-12 h-6 rounded-full transition-colors flex items-center px-1 ${prefs[key] ? "bg-indigo-600" : "bg-gray-200"}`}>
+                <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${prefs[key] ? "translate-x-6" : "translate-x-0"}`} />
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Login Page ───────────────────────────────────────────────────────────────
 function LoginPage({ login, nav, t, lang }) {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");

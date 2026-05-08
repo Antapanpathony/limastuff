@@ -84,6 +84,16 @@
     unique(survey_id, user_id)
   );
 
+  create table addresses (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references users(id) on delete cascade,
+    label text not null default 'Home',
+    address text not null,
+    district text not null,
+    is_default boolean default false,
+    created_at timestamptz default now()
+  );
+
   -- Atomic helper called when a job is marked completed
   create or replace function increment_provider_stats(p_user_id uuid, p_earnings numeric)
   returns void language sql as $$
@@ -453,6 +463,56 @@ app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
       category: profile.category,
       recentJobs: completedJobs.slice(0, 10).map(mapBooking),
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Profile update ───────────────────────────────────────────────────────────
+app.patch('/api/profile/me', auth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    const { data, error } = await supabase
+      .from('users').update({ name: name.trim() }).eq('id', req.user.userId)
+      .select('id, email, name, role, created_at').single();
+    if (error) throw error;
+    res.json(mapUser(data));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Addresses ────────────────────────────────────────────────────────────────
+app.get('/api/profile/addresses', auth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('addresses').select('*').eq('user_id', req.user.userId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    res.json((data || []).map(a => ({
+      id: a.id, label: a.label, address: a.address,
+      district: a.district, isDefault: a.is_default,
+    })));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/profile/addresses', auth, async (req, res) => {
+  try {
+    const { label, address, district } = req.body;
+    if (!address?.trim() || !district?.trim()) return res.status(400).json({ error: 'Address and district are required' });
+    const { data, error } = await supabase
+      .from('addresses')
+      .insert({ user_id: req.user.userId, label: label?.trim() || 'Home', address: address.trim(), district: district.trim() })
+      .select().single();
+    if (error) throw error;
+    res.json({ id: data.id, label: data.label, address: data.address, district: data.district, isDefault: data.is_default });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/profile/addresses/:id', auth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('addresses').delete()
+      .eq('id', req.params.id).eq('user_id', req.user.userId);
+    if (error) throw error;
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
