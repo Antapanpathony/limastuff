@@ -54,6 +54,11 @@ export const api = {
   addAddress: (data) => request('/profile/addresses', { method: 'POST', ...body(data) }),
   deleteAddress: (id) => request(`/profile/addresses/${id}`, { method: 'DELETE' }),
 
+  // Push subscriptions
+  getVapidPublicKey: () => request('/push/vapid-public-key'),
+  subscribePush: (subscription) => request('/push/subscribe', { method: 'POST', ...body({ subscription }) }),
+  unsubscribePush: (endpoint) => request('/push/subscribe', { method: 'DELETE', ...body({ endpoint }) }),
+
   // Notifications
   getNotifications: () => request('/notifications'),
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'PATCH' }),

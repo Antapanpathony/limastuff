@@ -309,6 +309,7 @@ export default function App() {
     if (!user) { setPendingSurveys([]); setUnreadCount(0); return; }
     api.getPendingSurveys().then(setPendingSurveys).catch(() => {});
     api.getNotifications().then(ns => setUnreadCount(ns.filter(n => !n.read).length)).catch(() => {});
+    if (Notification.permission === 'granted') registerPush();
   }, [user]);
 
   // Sync browser back/forward with /admin URL
@@ -333,9 +334,26 @@ export default function App() {
 
   const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
 
+  const registerPush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      const { key } = await api.getVapidPublicKey();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: key,
+      });
+      await api.subscribePush(sub.toJSON());
+    } catch (_) {}
+  };
+
   const handleLogin = (userData) => {
     ls.set("ps_user", userData);
     setUser(userData);
+    registerPush();
   };
 
   const handleLogout = () => {

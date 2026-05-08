@@ -94,6 +94,14 @@
     created_at timestamptz default now()
   );
 
+  create table push_subscriptions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references users(id) on delete cascade,
+    endpoint text not null unique,
+    subscription jsonb not null,
+    created_at timestamptz default now()
+  );
+
   create table notifications (
     id uuid primary key default gen_random_uuid(),
     user_id uuid references users(id) on delete cascade,
@@ -130,6 +138,7 @@
 */
 
 import { createClient } from '@supabase/supabase-js';
+import webpush from 'web-push';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
@@ -144,10 +153,32 @@ const supabase = createClient(
 const JWT_SECRET = process.env.JWT_SECRET || 'peruserv-dev-secret-2024';
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || 'BD_WKWl-0N2iit_2LVy-5NUruN2iYKzPFGrcMe8Y-4I8-VPAeWwFC8lDaeIcJnH88tVAcbW3Q8VTmU4MisuVA6s';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '_FvAavrWzyr_f16calS3UkguaTQ6cvUR_AT99tQmWmQ';
+webpush.setVapidDetails('mailto:hello@peruserv.pe', VAPID_PUBLIC, VAPID_PRIVATE);
+
 // ─── Row mappers ──────────────────────────────────────────────────────────────
 const pushNotification = async (userId, type, title, body) => {
   try {
     await supabase.from('notifications').insert({ user_id: userId, type, title, body });
+  } catch (_) {}
+  try {
+    const { data: subs } = await supabase
+      .from('push_subscriptions').select('subscription').eq('user_id', userId);
+    if (!subs?.length) return;
+    const payload = JSON.stringify({ title, body, tag: type });
+    await Promise.allSettled(
+      subs.map(async ({ subscription }) => {
+        try {
+          await webpush.sendNotification(subscription, payload);
+        } catch (err) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            await supabase.from('push_subscriptions')
+              .delete().eq('user_id', userId).eq('subscription->>endpoint', subscription.endpoint);
+          }
+        }
+      })
+    );
   } catch (_) {}
 };
 
@@ -556,6 +587,30 @@ app.delete('/api/profile/addresses/:id', auth, async (req, res) => {
       .from('addresses').delete()
       .eq('id', req.params.id).eq('user_id', req.user.userId);
     if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Push subscriptions ───────────────────────────────────────────────────────
+app.get('/api/push/vapid-public-key', (_, res) => res.json({ key: VAPID_PUBLIC }));
+
+app.post('/api/push/subscribe', auth, async (req, res) => {
+  try {
+    const { subscription } = req.body;
+    if (!subscription?.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
+    await supabase.from('push_subscriptions').upsert(
+      { user_id: req.user.userId, subscription, endpoint: subscription.endpoint },
+      { onConflict: 'endpoint' }
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/push/subscribe', auth, async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    await supabase.from('push_subscriptions').delete()
+      .eq('user_id', req.user.userId).eq('endpoint', endpoint);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
