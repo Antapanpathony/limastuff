@@ -277,6 +277,48 @@ const ls = {
   del: (k) => localStorage.removeItem(k),
 };
 
+// ─── Page context builder for AI ───────────────────────────────────────────
+function getPageContext({ page, catSlug, cart, lang }) {
+  switch (page) {
+    case "home":
+      return `The user is on the PeruServ Home page.
+Available service categories: ${CATEGORIES.map(c => `${c.icon} ${c.name[lang]} (${c.slug})`).join(", ")}.
+Featured services:
+${SERVICES.map(s => `- ${s.name[lang]}: ${s.desc[lang]} Price: S/${s.price}. Duration: ${s.dur}. Rating: ${s.stars}★ (${s.reviews} reviews).`).join("\n")}`;
+
+    case "category": {
+      const cat = CATEGORIES.find(c => c.slug === catSlug);
+      const svcs = SERVICES.filter(s => s.cat === catSlug);
+      return `The user is browsing the ${cat?.name[lang] || catSlug} category.
+Services shown on screen:
+${svcs.map(s => `- ${s.name[lang]}: ${s.desc[lang]} Price: S/${s.price}. Duration: ${s.dur}. Rating: ${s.stars}★ (${s.reviews} reviews).`).join("\n")}`;
+    }
+
+    case "checkout": {
+      if (!cart.length) return "The user is on the checkout page with an empty cart.";
+      const subtotal = cart.reduce((s, i) => s + i.svc.price * i.qty, 0);
+      const tax = subtotal * 0.18;
+      const total = subtotal + tax + 2;
+      return `The user is reviewing their booking before confirming.
+Items in cart:
+${cart.map(i => `- ${i.qty}x ${i.svc.name[lang]}: ${i.svc.desc[lang]} @ S/${i.svc.price} each.`).join("\n")}
+Subtotal: S/${subtotal.toFixed(2)}, Tax (18%): S/${tax.toFixed(2)}, Fee: S/2.00, Total: S/${total.toFixed(2)}.`;
+    }
+
+    case "bookings":
+      return "The user is on their Bookings page, viewing their service booking history.";
+
+    case "profile":
+      return "The user is on their Profile page, viewing their account details and ratings.";
+
+    case "provider-dashboard":
+      return "The user is a service provider viewing their job dashboard, active jobs, and earnings.";
+
+    default:
+      return "The user is on PeruServ, a home services app for Lima, Peru.";
+  }
+}
+
 // ─── App Component ─────────────────────────────────────────────────────────
 export default function App() {
   const [lang, setLang] = useState(() => ls.get("ps_lang") || "es");
@@ -514,7 +556,12 @@ export default function App() {
       )}
 
       {showChat && (
-        <ChatModal onClose={() => setShowChat(false)} t={t} lang={lang} />
+        <ChatModal
+          onClose={() => setShowChat(false)}
+          t={t}
+          lang={lang}
+          pageContext={getPageContext({ page, catSlug, cart, lang })}
+        />
       )}
     </div>
   );
@@ -1491,7 +1538,7 @@ function SurveyModal({ survey, lang, onClose }) {
 }
 
 // ─── Chat Component ────────────────────────────────────────────────────────
-function ChatModal({ onClose, t, lang }) {
+function ChatModal({ onClose, t, lang, pageContext }) {
   const [msgs, setMsgs] = useState([{ role: "model", text: t("ai_intro") }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1501,18 +1548,18 @@ function ChatModal({ onClose, t, lang }) {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs]);
 
-  const SYSTEM_PROMPT = `
-    You are the "Virtual Master" (Maestro Virtual) of PeruServ, the official home services app for Lima, Peru.
+  const SYSTEM_PROMPT = `You are the "Virtual Master" (Maestro Virtual) of PeruServ, the official home services app for Lima, Peru.
 
-    LANGUAGE: Current user language is ${lang === "es" ? "Spanish" : "English"}. Respond ALWAYS in ${lang === "es" ? "Spanish" : "English"}.
+LANGUAGE: Respond ALWAYS in ${lang === "es" ? "Spanish" : "English"}.
 
-    PRICES (Soles): Cleaning S/89-150. Plumbing S/30-180. Haircut S/45. Painting S/200-350.
-    FEES: Total = price + 18% IGV + S/2 service fee.
+TONE: Helpful, friendly, slightly informal (use 'jefe/a' in Spanish or 'boss' in English). Keep answers concise — 2-4 sentences unless asked to elaborate.
 
-    TONE: Helpful, friendly, slightly informal like a local handyman (use 'jefe/a' in Spanish or 'boss' in English).
-    Short answers (max 3-4 sentences).
-    If the user asks for materials, suggest Sodimac or Promart.
-  `;
+PRICING (Soles): Cleaning S/89-150. Plumbing S/30-180. Haircut S/45. Painting S/200-350. All prices include 18% IGV + S/2 service fee.
+
+CURRENT PAGE CONTEXT — what the user is looking at right now:
+${pageContext}
+
+Use the page context to answer specific questions about services, prices, or bookings the user can see. If asked to summarise a service or booking, use the details above. If asked for materials, suggest Sodimac or Promart.`;
 
   const handleSend = async () => {
     if (!input.trim() || busy) return;
