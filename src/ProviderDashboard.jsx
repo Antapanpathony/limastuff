@@ -97,22 +97,25 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
   const [available, setAvailable] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
   const [earnings, setEarnings] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [ratingJob, setRatingJob] = useState(null);
+  const fetched = React.useRef({ available: false, jobs: false, earnings: false });
 
   const t = (es, en) => (lang === "es" ? es : en);
 
-  const fetchAll = useCallback(async () => {
+  const fetchTab = useCallback(async (t) => {
     setLoading(true);
     try {
-      const [avail, jobs, earn] = await Promise.all([
-        api.getAvailableJobs(),
-        api.getMyJobs(),
-        api.getEarnings(),
-      ]);
-      setAvailable(avail);
-      setMyJobs(jobs);
-      setEarnings(earn);
+      if (t === "available") {
+        setAvailable(await api.getAvailableJobs());
+        fetched.current.available = true;
+      } else if (t === "active") {
+        setMyJobs(await api.getMyJobs());
+        fetched.current.jobs = true;
+      } else if (t === "earnings") {
+        setEarnings(await api.getEarnings());
+        fetched.current.earnings = true;
+      }
     } catch (err) {
       notify(err.message);
     } finally {
@@ -120,13 +123,24 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
     }
   }, [notify]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchTab("available"); }, [fetchTab]);
+
+  const switchTab = (next) => {
+    setTab(next);
+    const alreadyFetched =
+      (next === "available" && fetched.current.available) ||
+      (next === "active" && fetched.current.jobs) ||
+      (next === "earnings" && fetched.current.earnings);
+    if (!alreadyFetched) fetchTab(next);
+  };
 
   const handleAccept = async (jobId) => {
     try {
       await api.acceptJob(jobId);
       notify(t("Trabajo aceptado ✓", "Job accepted ✓"));
-      fetchAll();
+      fetched.current.available = false;
+      fetched.current.jobs = false;
+      fetchTab("available");
     } catch (err) { notify(err.message); }
   };
 
@@ -135,13 +149,15 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
       await api.updateJobStatus(jobId, newStatus);
       if (newStatus === "completed") notify(t("¡Trabajo completado! 🎉", "Job completed! 🎉"));
       else notify(t("Trabajo iniciado ✓", "Job started ✓"));
-      fetchAll();
+      fetched.current.jobs = false;
+      fetched.current.earnings = false;
+      fetchTab("active");
     } catch (err) { notify(err.message); }
   };
 
   const handleRatingClose = (submitted) => {
     setRatingJob(null);
-    if (submitted) fetchAll();
+    if (submitted) { fetched.current.jobs = false; fetchTab("active"); }
   };
 
   const activeJobs = myJobs.filter(j => j.status !== "completed");
@@ -182,7 +198,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
           {tabs.map(tabItem => (
             <button
               key={tabItem.id}
-              onClick={() => setTab(tabItem.id)}
+              onClick={() => switchTab(tabItem.id)}
               className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-tight transition-all ${
                 tab === tabItem.id ? "bg-indigo-600 text-white shadow-sm" : "bg-gray-100 text-gray-500"
               }`}

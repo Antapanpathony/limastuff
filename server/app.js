@@ -530,14 +530,14 @@ app.get('/api/provider/earnings', auth, requireProvider, async (req, res) => {
       .select('*, booking_items(*)')
       .eq('provider_id', req.user.userId)
       .eq('status', 'completed')
-      .order('updated_at', { ascending: false });
+      .gte('updated_at', startOfMonth)
+      .order('updated_at', { ascending: false })
+      .limit(50);
     if (error) throw error;
 
     res.json({
       totalEarnings: Number(profile.total_earnings),
-      thisMonthEarnings: completedJobs
-        .filter(b => b.updated_at >= startOfMonth)
-        .reduce((s, b) => s + Number(b.total), 0),
+      thisMonthEarnings: completedJobs.reduce((s, b) => s + Number(b.total), 0),
       jobsCompleted: profile.jobs_completed,
       rating: Number(profile.rating),
       category: profile.category,
