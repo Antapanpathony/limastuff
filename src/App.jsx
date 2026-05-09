@@ -137,15 +137,8 @@ const DICT = {
     addr_cancel: "Cancelar",
     addr_delete: "Eliminar",
     notif_title: "Notificaciones",
-    notif_bookings: "Actualizaciones de reservas",
-    notif_bookings_sub: "Confirmaciones, cambios de estado y recordatorios",
-    notif_promos: "Promociones y ofertas",
-    notif_promos_sub: "Descuentos especiales y nuevos servicios",
-    notif_reminders: "Recordatorios de servicio",
-    notif_reminders_sub: "Recordatorios 1 hora antes del servicio",
-    notif_newsletter: "Novedades de PeruServ",
-    notif_newsletter_sub: "Actualizaciones de la app y nuevas funciones",
-    notif_saved: "Preferencias guardadas",
+    notif_empty: "Sin notificaciones aún",
+    notif_mark_all: "Marcar todo como leído",
   },
   en: {
     app_name: "PeruServ",
@@ -235,15 +228,8 @@ const DICT = {
     addr_cancel: "Cancel",
     addr_delete: "Delete",
     notif_title: "Notifications",
-    notif_bookings: "Booking updates",
-    notif_bookings_sub: "Confirmations, status changes, and reminders",
-    notif_promos: "Promotions & offers",
-    notif_promos_sub: "Special discounts and new services",
-    notif_reminders: "Service reminders",
-    notif_reminders_sub: "Reminders 1 hour before your service",
-    notif_newsletter: "PeruServ news",
-    notif_newsletter_sub: "App updates and new features",
-    notif_saved: "Preferences saved",
+    notif_empty: "No notifications yet",
+    notif_mark_all: "Mark all as read",
   },
 };
 
@@ -313,14 +299,17 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
   const [toast, setToast] = useState(null);
   const [pendingSurveys, setPendingSurveys] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const t = (key) => DICT[lang][key] || key;
 
   useEffect(() => { ls.set("ps_lang", lang); }, [lang]);
 
   useEffect(() => {
-    if (!user) { setPendingSurveys([]); return; }
+    if (!user) { setPendingSurveys([]); setUnreadCount(0); return; }
     api.getPendingSurveys().then(setPendingSurveys).catch(() => {});
+    api.getNotifications().then(ns => setUnreadCount(ns.filter(n => !n.read).length)).catch(() => {});
+    if (Notification.permission === 'granted') registerPush();
   }, [user]);
 
   // Sync browser back/forward with /admin URL
@@ -345,9 +334,26 @@ export default function App() {
 
   const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
 
+  const registerPush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') return;
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      const { key } = await api.getVapidPublicKey();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: key,
+      });
+      await api.subscribePush(sub.toJSON());
+    } catch (_) {}
+  };
+
   const handleLogin = (userData) => {
     ls.set("ps_user", userData);
     setUser(userData);
+    registerPush();
   };
 
   const handleLogout = () => {
@@ -398,6 +404,7 @@ export default function App() {
             lang={lang}
             toggleLang={toggleLang}
             user={user}
+            unreadCount={unreadCount}
           />
         )}
         {page === "category" && (
@@ -487,6 +494,7 @@ export default function App() {
             t={t}
             lang={lang}
             toggleLang={toggleLang}
+            setUnreadCount={setUnreadCount}
           />
         )}
         {page === "login" && (
@@ -625,7 +633,7 @@ function Header({ title, nav, back, toggleLang, lang, badge }) {
   );
 }
 
-function HomePage({ nav, setShowChat, t, lang, toggleLang, user }) {
+function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) {
   return (
     <>
       <div className="px-4 pt-8 pb-4 flex justify-between items-center bg-white">
@@ -650,8 +658,16 @@ function HomePage({ nav, setShowChat, t, lang, toggleLang, user }) {
           >
             <Languages size={20} />
           </button>
-          <button className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center">
+          <button
+            onClick={() => nav("notifications")}
+            className="relative w-10 h-10 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center"
+          >
             <Bell size={20} />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -1370,51 +1386,87 @@ function SavedAddressesPage({ nav, notify, t, lang, toggleLang }) {
 }
 
 // ─── Notifications Page ───────────────────────────────────────────────────────
-function NotificationsPage({ nav, notify, t, lang, toggleLang }) {
-  const STORAGE_KEY = "ps_notif_prefs";
-  const defaults = { bookings: true, promos: false, reminders: true, newsletter: false };
-  const [prefs, setPrefs] = useState(() => {
-    try { return { ...defaults, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") }; }
-    catch { return defaults; }
-  });
+const NOTIF_ICONS = {
+  booking_created: "📋", booking_accepted: "🔧", booking_started: "🏠",
+  booking_completed: "⭐", default: "🔔",
+};
 
-  const toggle = (key) => {
-    setPrefs((p) => {
-      const next = { ...p, [key]: !p[key] };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
-    notify(t("notif_saved"));
+function timeAgo(dateStr, lang) {
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+  if (diff < 60) return lang === "es" ? "ahora" : "just now";
+  if (diff < 3600) { const m = Math.floor(diff / 60); return lang === "es" ? `hace ${m}m` : `${m}m ago`; }
+  if (diff < 86400) { const h = Math.floor(diff / 3600); return lang === "es" ? `hace ${h}h` : `${h}h ago`; }
+  const d = Math.floor(diff / 86400);
+  return lang === "es" ? `hace ${d}d` : `${d}d ago`;
+}
+
+function NotificationsPage({ nav, notify, t, lang, toggleLang, setUnreadCount }) {
+  const [notifs, setNotifs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getNotifications()
+      .then(setNotifs)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const markAllRead = async () => {
+    await api.markAllNotificationsRead().catch(() => {});
+    setNotifs((p) => p.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
   };
 
-  const items = [
-    { key: "bookings", labelKey: "notif_bookings", subKey: "notif_bookings_sub" },
-    { key: "promos", labelKey: "notif_promos", subKey: "notif_promos_sub" },
-    { key: "reminders", labelKey: "notif_reminders", subKey: "notif_reminders_sub" },
-    { key: "newsletter", labelKey: "notif_newsletter", subKey: "notif_newsletter_sub" },
-  ];
+  const markRead = async (id) => {
+    await api.markNotificationRead(id).catch(() => {});
+    setNotifs((p) => p.map((n) => n.id === id ? { ...n, read: true } : n));
+    setUnreadCount((c) => Math.max(0, c - 1));
+  };
+
+  const unread = notifs.filter((n) => !n.read).length;
 
   return (
     <div>
       <Header title={t("notif_title")} nav={nav} back="profile" toggleLang={toggleLang} lang={lang} />
-      <div className="p-4">
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm divide-y divide-gray-50 overflow-hidden">
-          {items.map(({ key, labelKey, subKey }) => (
+      <div className="p-4 space-y-3">
+        {unread > 0 && (
+          <button
+            onClick={markAllRead}
+            className="w-full text-indigo-600 font-bold text-sm py-2 hover:underline text-right"
+          >
+            {t("notif_mark_all")}
+          </button>
+        )}
+        {loading ? (
+          <div className="text-center py-12 text-gray-400 text-sm font-bold">...</div>
+        ) : notifs.length === 0 ? (
+          <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center">
+            <Bell size={36} className="mx-auto text-gray-300 mb-3" />
+            <p className="text-gray-400 font-bold text-sm">{t("notif_empty")}</p>
+          </div>
+        ) : (
+          notifs.map((n) => (
             <button
-              key={key}
-              onClick={() => toggle(key)}
-              className="w-full flex justify-between items-center p-5 hover:bg-gray-50 text-left"
+              key={n.id}
+              onClick={() => !n.read && markRead(n.id)}
+              className={`w-full flex gap-4 items-start p-4 rounded-2xl border text-left transition-colors ${
+                n.read ? "bg-white border-gray-100" : "bg-indigo-50 border-indigo-100"
+              }`}
             >
-              <div className="flex-1 pr-4">
-                <p className="font-bold text-gray-800 text-sm">{t(labelKey)}</p>
-                <p className="text-gray-400 text-xs mt-0.5">{t(subKey)}</p>
-              </div>
-              <div className={`w-12 h-6 rounded-full transition-colors flex items-center px-1 ${prefs[key] ? "bg-indigo-600" : "bg-gray-200"}`}>
-                <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${prefs[key] ? "translate-x-6" : "translate-x-0"}`} />
+              <span className="text-2xl mt-0.5">{NOTIF_ICONS[n.type] || NOTIF_ICONS.default}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-start gap-2">
+                  <p className={`text-sm ${n.read ? "font-medium text-gray-700" : "font-black text-gray-900"}`}>
+                    {n.title}
+                  </p>
+                  {!n.read && <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0 mt-1.5" />}
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{n.body}</p>
+                <p className="text-[10px] text-gray-300 font-bold mt-1">{timeAgo(n.createdAt, lang)}</p>
               </div>
             </button>
-          ))}
-        </div>
+          ))
+        )}
       </div>
     </div>
   );
