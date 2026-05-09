@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageCircle,
-  Bell,
   MapPin,
   Plus,
   Minus,
@@ -19,6 +18,16 @@ import {
   ShieldCheck,
   Star,
   Trash2,
+  Sparkles,
+  Wrench,
+  Zap,
+  Lock,
+  Paintbrush,
+  Truck,
+  Shield,
+  Search,
+  Phone,
+  ChevronDown,
 } from "lucide-react";
 import { api } from "./api";
 import ProviderDashboard from "./ProviderDashboard";
@@ -38,15 +47,113 @@ const DISTRICTS = [
 ];
 
 const CATEGORIES = [
-  { slug: "cleaning", name: { es: "Limpieza", en: "Cleaning" }, icon: "✨" },
-  { slug: "plumbing", name: { es: "Gasfitería", en: "Plumbing" }, icon: "🔧" },
-  { slug: "electrician", name: { es: "Electricista", en: "Electrician" }, icon: "⚡" },
-  { slug: "beauty", name: { es: "Belleza", en: "Beauty" }, icon: "✂️" },
-  { slug: "painting", name: { es: "Pintura", en: "Painting" }, icon: "🎨" },
-  { slug: "moving", name: { es: "Mudanza", en: "Moving" }, icon: "🚛" },
+  {
+    slug: "cleaning",
+    name: { es: "Limpieza", en: "Cleaning" },
+    Icon: Sparkles,
+    color: "text-blue-500",
+    bg: "bg-blue-50",
+    priceRange: { es: "desde S/89", en: "from S/89" },
+    techsAvail: 8,
+    avgRating: 4.8,
+  },
+  {
+    slug: "plumbing",
+    name: { es: "Gasfitería", en: "Plumbing" },
+    Icon: Wrench,
+    color: "text-indigo-500",
+    bg: "bg-indigo-50",
+    priceRange: { es: "desde S/30", en: "from S/30" },
+    techsAvail: 5,
+    avgRating: 4.9,
+  },
+  {
+    slug: "electrician",
+    name: { es: "Electricista", en: "Electrician" },
+    Icon: Zap,
+    color: "text-yellow-500",
+    bg: "bg-yellow-50",
+    priceRange: { es: "desde S/50", en: "from S/50" },
+    techsAvail: 6,
+    avgRating: 4.7,
+  },
+  {
+    slug: "cerrajeria",
+    name: { es: "Cerrajería", en: "Locksmith" },
+    Icon: Lock,
+    color: "text-purple-500",
+    bg: "bg-purple-50",
+    priceRange: { es: "desde S/40", en: "from S/40" },
+    techsAvail: 4,
+    avgRating: 4.8,
+  },
+  {
+    slug: "painting",
+    name: { es: "Pintura", en: "Painting" },
+    Icon: Paintbrush,
+    color: "text-rose-500",
+    bg: "bg-rose-50",
+    priceRange: { es: "desde S/200", en: "from S/200" },
+    techsAvail: 7,
+    avgRating: 4.8,
+  },
+  {
+    slug: "moving",
+    name: { es: "Mudanza", en: "Moving" },
+    Icon: Truck,
+    color: "text-orange-500",
+    bg: "bg-orange-50",
+    priceRange: { es: "desde S/150", en: "from S/150" },
+    techsAvail: 3,
+    avgRating: 4.6,
+  },
+  {
+    slug: "beauty",
+    name: { es: "Belleza", en: "Beauty" },
+    Icon: null,
+    icon: "✂️",
+    color: "text-pink-500",
+    bg: "bg-pink-50",
+    priceRange: { es: "desde S/45", en: "from S/45" },
+    techsAvail: 5,
+    avgRating: 4.7,
+  },
 ];
 
 const SERVICES = [];
+
+const TESTIMONIALS = [
+  {
+    name: "María G.",
+    district: "Miraflores",
+    service: { es: "Limpieza profunda", en: "Deep cleaning" },
+    text: {
+      es: "Excelente servicio, llegaron puntual y dejaron el depto impecable.",
+      en: "Excellent service, arrived on time and left the apartment spotless.",
+    },
+    rating: 5,
+  },
+  {
+    name: "Carlos R.",
+    district: "San Isidro",
+    service: { es: "Gasfitería", en: "Plumbing" },
+    text: {
+      es: "Resolvieron el caño roto en menos de una hora. Lo recomiendo 100%.",
+      en: "Fixed the broken pipe in under an hour. 100% recommend.",
+    },
+    rating: 5,
+  },
+  {
+    name: "Lucía P.",
+    district: "Surco",
+    service: { es: "Electricista", en: "Electrician" },
+    text: {
+      es: "Técnico muy profesional y honesto con el presupuesto. Volvería a contratar.",
+      en: "Very professional, honest about the estimate. Would hire again.",
+    },
+    rating: 5,
+  },
+];
 
 const DICT = {
   es: {
@@ -121,9 +228,16 @@ const DICT = {
     bio: "Descripción breve",
     bio_placeholder: "Ej: Gasfitero con 10 años de experiencia en Lima",
     provider_badge: "Modo Maestro",
+    trust_strip: "+5,000 limeños confían en PeruServ",
+    verified_badge: "Técnicos Verificados",
+    search_placeholder: "¿Qué necesitas hoy?",
+    techs_available: "técnicos disponibles",
+    testimonials_title: "Lo que dicen nuestros clientes",
+    whatsapp_cta: "WhatsApp",
+    change_district: "Cambiar distrito",
+    payment_methods: "Métodos de pago aceptados",
     setting_account: "Información de Cuenta",
     setting_addresses: "Direcciones Guardadas",
-    setting_notifications: "Notificaciones",
     setting_language: "Idioma",
     acct_title: "Información de Cuenta",
     acct_name: "Nombre completo",
@@ -141,9 +255,6 @@ const DICT = {
     addr_save: "Guardar",
     addr_cancel: "Cancelar",
     addr_delete: "Eliminar",
-    notif_title: "Notificaciones",
-    notif_empty: "Sin notificaciones aún",
-    notif_mark_all: "Marcar todo como leído",
   },
   en: {
     app_name: "PeruServ",
@@ -217,9 +328,16 @@ const DICT = {
     bio: "Short description",
     bio_placeholder: "Ex: Plumber with 10 years of experience in Lima",
     provider_badge: "Provider Mode",
+    trust_strip: "+5,000 Lima residents trust PeruServ",
+    verified_badge: "Verified Technicians",
+    search_placeholder: "What do you need today?",
+    techs_available: "technicians available",
+    testimonials_title: "What our customers say",
+    whatsapp_cta: "WhatsApp",
+    change_district: "Change district",
+    payment_methods: "Accepted payment methods",
     setting_account: "Account Info",
     setting_addresses: "Saved Addresses",
-    setting_notifications: "Notifications",
     setting_language: "Language",
     acct_title: "Account Info",
     acct_name: "Full name",
@@ -237,9 +355,6 @@ const DICT = {
     addr_save: "Save",
     addr_cancel: "Cancel",
     addr_delete: "Delete",
-    notif_title: "Notifications",
-    notif_empty: "No notifications yet",
-    notif_mark_all: "Mark all as read",
   },
 };
 
@@ -260,7 +375,7 @@ function getPageContext({ page, catSlug, cart, lang }) {
   switch (page) {
     case "home":
       return `The user is on the PeruServ Home page.
-Available service categories: ${CATEGORIES.map(c => `${c.icon} ${c.name[lang]} (${c.slug})`).join(", ")}.`;
+Available service categories: ${CATEGORIES.map(c => `${c.name[lang]} (${c.slug})`).join(", ")}.`;
 
     case "category": {
       const cat = CATEGORIES.find(c => c.slug === catSlug);
@@ -304,16 +419,14 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
   const [toast, setToast] = useState(null);
   const [pendingSurveys, setPendingSurveys] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
 
   const t = (key) => DICT[lang][key] || key;
 
   useEffect(() => { ls.set("ps_lang", lang); }, [lang]);
 
   useEffect(() => {
-    if (!user) { setPendingSurveys([]); setUnreadCount(0); return; }
+    if (!user) { setPendingSurveys([]); return; }
     api.getPendingSurveys().then(setPendingSurveys).catch(() => {});
-    api.getNotifications().then(ns => setUnreadCount(ns.filter(n => !n.read).length)).catch(() => {});
     if (Notification.permission === 'granted') registerPush();
   }, [user]);
 
@@ -409,7 +522,6 @@ export default function App() {
             lang={lang}
             toggleLang={toggleLang}
             user={user}
-            unreadCount={unreadCount}
           />
         )}
         {page === "category" && (
@@ -490,16 +602,6 @@ export default function App() {
             t={t}
             lang={lang}
             toggleLang={toggleLang}
-          />
-        )}
-        {page === "notifications" && (
-          <NotificationsPage
-            nav={nav}
-            notify={notify}
-            t={t}
-            lang={lang}
-            toggleLang={toggleLang}
-            setUnreadCount={setUnreadCount}
           />
         )}
         {page === "become-provider" && (
@@ -592,6 +694,19 @@ export default function App() {
         />
       )}
 
+      {!isAuthPage && (
+        <a
+          href={`https://wa.me/51999000000?text=${encodeURIComponent(lang === "es" ? "Hola, necesito un servicio en Lima" : "Hello, I need a service in Lima")}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-52 right-4 bg-green-500 text-white h-12 px-4 rounded-full flex items-center gap-2 shadow-2xl z-40 font-bold text-sm hover:bg-green-600 active:scale-95 transition-all"
+          aria-label="WhatsApp"
+        >
+          <Phone size={18} />
+          <span>{t("whatsapp_cta")}</span>
+        </a>
+      )}
+
       {!showChat && !isAuthPage && (
         <button
           onClick={() => setShowChat(true)}
@@ -660,18 +775,33 @@ function Header({ title, nav, back, toggleLang, lang, badge }) {
   );
 }
 
-function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) {
+function HomePage({ nav, setShowChat, t, lang, toggleLang, user }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [district, setDistrict] = useState("Miraflores");
+  const [showDistrictPicker, setShowDistrictPicker] = useState(false);
+
+  const filteredCategories = searchQuery.trim()
+    ? CATEGORIES.filter((c) =>
+        c.name[lang].toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : CATEGORIES;
+
   return (
     <>
-      <div className="px-4 pt-8 pb-4 flex justify-between items-center bg-white">
+      {/* Header with branding + tappable location */}
+      <div className="px-4 pt-8 pb-4 flex justify-between items-center bg-white relative">
         <div>
-          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
-            {t("location")}
+          <p className="text-lg font-black text-indigo-600 leading-none mb-1">
+            PeruServ
           </p>
-          <div className="flex items-center gap-1 text-gray-800 font-bold">
+          <button
+            onClick={() => setShowDistrictPicker((v) => !v)}
+            className="flex items-center gap-1 text-gray-800 font-bold"
+          >
             <MapPin size={16} className="text-indigo-600" />
-            Miraflores, Lima
-          </div>
+            {district}, Lima
+            <ChevronDown size={14} className="text-gray-400" />
+          </button>
         </div>
         <div className="flex gap-2 items-center">
           {(user?.isProvider ?? user?.role === "provider") && (
@@ -685,24 +815,48 @@ function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) 
           >
             <Languages size={20} />
           </button>
-          <button
-            onClick={() => nav("notifications")}
-            className="relative w-10 h-10 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center"
-          >
-            <Bell size={20} />
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
-                {unreadCount > 9 ? "9+" : unreadCount}
-              </span>
-            )}
-          </button>
+
         </div>
       </div>
 
-      <div className="px-4 mb-8">
+      {/* District picker dropdown */}
+      {showDistrictPicker && (
+        <div className="fixed left-4 top-24 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 w-56 max-h-52 overflow-y-auto">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-4 pt-3 pb-1">
+            {t("change_district")}
+          </p>
+          {DISTRICTS.map((d) => (
+            <button
+              key={d}
+              onClick={() => {
+                setDistrict(d);
+                setShowDistrictPicker(false);
+              }}
+              className={`w-full text-left px-4 py-2.5 text-sm hover:bg-indigo-50 transition-colors flex items-center gap-2 ${
+                district === d ? "text-indigo-600 font-bold" : "text-gray-700"
+              }`}
+            >
+              {district === d && <CheckCircle size={12} />}
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Trust strip */}
+      <div className="px-4 pb-4 bg-white">
+        <div className="bg-indigo-50 rounded-2xl px-4 py-3 flex items-center gap-3">
+          <Shield size={20} className="text-indigo-600 shrink-0" />
+          <p className="text-indigo-700 text-sm font-bold">{t("trust_strip")}</p>
+        </div>
+      </div>
+
+      {/* Hero banner */}
+      <div className="px-4 mb-6">
         <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
           <div className="relative z-10">
-            <span className="bg-white/20 px-3 py-1 rounded-lg text-[10px] font-black tracking-widest">
+            <span className="bg-white/20 px-3 py-1 rounded-lg text-[10px] font-black tracking-widest flex items-center gap-1 w-fit">
+              <CheckCircle size={12} />
               {t("banner_badge")}
             </span>
             <h2 className="text-2xl font-black mt-3 leading-tight">
@@ -722,33 +876,102 @@ function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) 
         </div>
       </div>
 
-      <div className="px-4 mb-8">
-        <h3 className="text-lg font-bold mb-4 text-gray-800">{t("pop_services")}</h3>
-        <div className="grid grid-cols-3 gap-4">
-          {CATEGORIES.map((c) => (
-            <button
-              key={c.slug}
-              onClick={() => nav("category", { cat: c.slug })}
-              className="flex flex-col items-center gap-2 group"
-            >
-              <div className="w-16 h-16 bg-white shadow-sm rounded-2xl flex items-center justify-center text-3xl group-active:scale-90 transition-transform border border-gray-100">
-                {c.icon}
+      {/* Search bar */}
+      <div className="px-4 mb-5">
+        <div className="relative">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder={t("search_placeholder")}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white border border-gray-200 rounded-2xl pl-11 pr-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-sm"
+          />
+        </div>
+      </div>
+
+      {/* Category grid */}
+      <div className="px-4 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-gray-800">{t("pop_services")}</h3>
+          <span className="text-xs text-indigo-600 font-bold flex items-center gap-1">
+            <Shield size={12} />
+            {t("verified_badge")}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {filteredCategories.map((c) => {
+            const CatIcon = c.Icon;
+            return (
+              <button
+                key={c.slug}
+                onClick={() => nav("category", { cat: c.slug })}
+                className="flex flex-col items-start gap-2 bg-white rounded-2xl p-3 shadow-sm border border-gray-100 group active:scale-95 transition-transform text-left"
+              >
+                <div className={`w-10 h-10 ${c.bg} ${c.color} rounded-xl flex items-center justify-center`}>
+                  {CatIcon ? (
+                    <CatIcon size={22} strokeWidth={2} />
+                  ) : (
+                    <span className="text-xl">{c.icon}</span>
+                  )}
+                </div>
+                <span className="text-[11px] font-bold text-gray-700 leading-tight">
+                  {c.name[lang]}
+                </span>
+                <span className="text-[10px] text-gray-400 font-medium">
+                  {c.priceRange[lang]}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Star size={10} className="text-amber-400 fill-amber-400" />
+                  <span className="text-[10px] text-gray-500 font-bold">{c.avgRating}</span>
+                  <span className="text-[10px] text-green-500 font-bold ml-1">
+                    · {c.techsAvail} {t("techs_available")}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Testimonials */}
+      <div className="px-4 mb-6">
+        <h3 className="text-base font-bold text-gray-800 mb-3">{t("testimonials_title")}</h3>
+        <div className="space-y-3">
+          {TESTIMONIALS.map((item, i) => (
+            <div key={i} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-black shrink-0 text-sm">
+                  {item.name[0]}
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between items-center mb-0.5">
+                    <span className="font-bold text-sm text-gray-800">{item.name}</span>
+                    <div className="flex">
+                      {[...Array(item.rating)].map((_, j) => (
+                        <Star key={j} size={10} className="text-amber-400 fill-amber-400" />
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mb-1">
+                    {item.district} · {item.service[lang]}
+                  </p>
+                  <p className="text-xs text-gray-600 leading-relaxed">"{item.text[lang]}"</p>
+                </div>
               </div>
-              <span className="text-[11px] font-bold text-gray-500 text-center uppercase tracking-tighter">
-                {c.name[lang]}
-              </span>
-            </button>
+            </div>
           ))}
         </div>
       </div>
 
-      <div className="px-4 pb-4">
+      {/* AI CTA card */}
+      <div className="px-4 pb-6">
         <div
           onClick={() => setShowChat(true)}
           className="bg-gray-900 rounded-2xl p-4 flex items-center justify-between cursor-pointer group hover:bg-black transition-colors"
         >
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-xl">
+            <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white text-xl shrink-0">
               ✨
             </div>
             <div>
@@ -756,7 +979,7 @@ function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) 
               <p className="text-gray-400 text-[11px]">{t("ai_cta_sub")}</p>
             </div>
           </div>
-          <span className="bg-white text-gray-900 px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-tighter">
+          <span className="bg-white text-gray-900 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tighter shrink-0 ml-2">
             {t("ai_cta_btn")}
           </span>
         </div>
@@ -781,7 +1004,7 @@ function CategoryPage({ slug, nav, addToCart, t, lang, toggleLang }) {
   return (
     <div>
       <Header
-        title={`${cat?.icon} ${cat?.name[lang]}`}
+        title={cat?.name[lang] || slug}
         nav={nav}
         back="home"
         toggleLang={toggleLang}
@@ -957,9 +1180,14 @@ function CheckoutPage({ cart, user, nav, clearCart, setQty, notify, t, lang, tog
         </div>
 
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
-          <h3 className="font-bold text-gray-800 mb-3">💳 {t("payment_soon_title")}</h3>
-          <div className="bg-gray-50 rounded-xl p-4 border border-dashed border-gray-200">
-            <p className="text-gray-400 text-sm leading-relaxed">{t("payment_soon_body")}</p>
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+            {t("payment_methods")}
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <span className="bg-purple-100 text-purple-700 text-[10px] font-black px-3 py-1.5 rounded-lg">YAPE</span>
+            <span className="bg-blue-100 text-blue-700 text-[10px] font-black px-3 py-1.5 rounded-lg">PLIN</span>
+            <span className="bg-gray-100 text-gray-600 text-[10px] font-black px-3 py-1.5 rounded-lg">TARJETA</span>
+            <span className="bg-green-100 text-green-700 text-[10px] font-black px-3 py-1.5 rounded-lg">EFECTIVO</span>
           </div>
         </div>
 
@@ -1180,7 +1408,7 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
             <span className="mt-2 bg-indigo-100 text-indigo-700 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wide">
               {lang === "es" ? "Maestro" : "Provider"}
               {user.providerProfile?.category
-                ? ` · ${CATEGORIES.find(c => c.slug === user.providerProfile.category)?.icon} ${CATEGORIES.find(c => c.slug === user.providerProfile.category)?.name[lang]}`
+                ? ` · ${CATEGORIES.find(c => c.slug === user.providerProfile.category)?.name[lang] || ""}`
                 : ""}
             </span>
           )}
@@ -1229,8 +1457,7 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
             {[
               { key: "setting_account", onClick: () => nav("account-info") },
               { key: "setting_addresses", onClick: () => nav("saved-addresses") },
-              { key: "setting_notifications", onClick: () => nav("notifications") },
-              ...(!( user.isProvider ?? user.role === "provider") ? [{ key: "become_provider", onClick: () => nav("become-provider") }] : []),
+...(!( user.isProvider ?? user.role === "provider") ? [{ key: "become_provider", onClick: () => nav("become-provider") }] : []),
               { key: "setting_language", onClick: toggleLang },
             ].map(({ key, onClick }) => (
               <button
@@ -1432,95 +1659,6 @@ function SavedAddressesPage({ nav, notify, t, lang, toggleLang }) {
     </div>
   );
 }
-
-// ─── Notifications Page ───────────────────────────────────────────────────────
-const NOTIF_ICONS = {
-  booking_created: "📋", booking_accepted: "🔧", booking_started: "🏠",
-  booking_completed: "⭐", default: "🔔",
-};
-
-function timeAgo(dateStr, lang) {
-  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (diff < 60) return lang === "es" ? "ahora" : "just now";
-  if (diff < 3600) { const m = Math.floor(diff / 60); return lang === "es" ? `hace ${m}m` : `${m}m ago`; }
-  if (diff < 86400) { const h = Math.floor(diff / 3600); return lang === "es" ? `hace ${h}h` : `${h}h ago`; }
-  const d = Math.floor(diff / 86400);
-  return lang === "es" ? `hace ${d}d` : `${d}d ago`;
-}
-
-function NotificationsPage({ nav, notify, t, lang, toggleLang, setUnreadCount }) {
-  const [notifs, setNotifs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getNotifications()
-      .then(setNotifs)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const markAllRead = async () => {
-    await api.markAllNotificationsRead().catch(() => {});
-    setNotifs((p) => p.map((n) => ({ ...n, read: true })));
-    setUnreadCount(0);
-  };
-
-  const markRead = async (id) => {
-    await api.markNotificationRead(id).catch(() => {});
-    setNotifs((p) => p.map((n) => n.id === id ? { ...n, read: true } : n));
-    setUnreadCount((c) => Math.max(0, c - 1));
-  };
-
-  const unread = notifs.filter((n) => !n.read).length;
-
-  return (
-    <div>
-      <Header title={t("notif_title")} nav={nav} back="profile" toggleLang={toggleLang} lang={lang} />
-      <div className="p-4 space-y-3">
-        {unread > 0 && (
-          <button
-            onClick={markAllRead}
-            className="w-full text-indigo-600 font-bold text-sm py-2 hover:underline text-right"
-          >
-            {t("notif_mark_all")}
-          </button>
-        )}
-        {loading ? (
-          <div className="text-center py-12 text-gray-400 text-sm font-bold">...</div>
-        ) : notifs.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-dashed border-gray-200 p-10 text-center">
-            <Bell size={36} className="mx-auto text-gray-300 mb-3" />
-            <p className="text-gray-400 font-bold text-sm">{t("notif_empty")}</p>
-          </div>
-        ) : (
-          notifs.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => !n.read && markRead(n.id)}
-              className={`w-full flex gap-4 items-start p-4 rounded-2xl border text-left transition-colors ${
-                n.read ? "bg-white border-gray-100" : "bg-indigo-50 border-indigo-100"
-              }`}
-            >
-              <span className="text-2xl mt-0.5">{NOTIF_ICONS[n.type] || NOTIF_ICONS.default}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start gap-2">
-                  <p className={`text-sm ${n.read ? "font-medium text-gray-700" : "font-black text-gray-900"}`}>
-                    {n.title}
-                  </p>
-                  {!n.read && <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0 mt-1.5" />}
-                </div>
-                <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{n.body}</p>
-                <p className="text-[10px] text-gray-300 font-bold mt-1">{timeAgo(n.createdAt, lang)}</p>
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Login Page ───────────────────────────────────────────────────────────────
 function LoginPage({ login, nav, t, lang }) {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -1626,7 +1764,7 @@ function BecomeProviderPage({ nav, notify, t, lang, toggleLang, onSuccess }) {
               onChange={(e) => f("category")(e.target.value)}
             >
               {CATEGORIES.map((c) => (
-                <option key={c.slug} value={c.slug}>{c.icon} {c.name[lang]}</option>
+                <option key={c.slug} value={c.slug}>{c.name[lang]}</option>
               ))}
             </select>
           </div>
@@ -1764,7 +1902,7 @@ function RegisterPage({ login, nav, t, lang }) {
               >
                 {CATEGORIES.map((c) => (
                   <option key={c.slug} value={c.slug}>
-                    {c.icon} {c.name[lang]}
+                    {c.name[lang]}
                   </option>
                 ))}
               </select>
@@ -1973,12 +2111,23 @@ LANGUAGE: Respond ALWAYS in ${lang === "es" ? "Spanish" : "English"}.
 
 TONE: Helpful, friendly, slightly informal (use 'jefe/a' in Spanish or 'boss' in English). Keep answers concise — 2-4 sentences unless asked to elaborate.
 
-PRICING (Soles): Cleaning S/89-150. Plumbing S/30-180. Haircut S/45. Painting S/200-350. All prices include 18% IGV + S/2 service fee.
+PRICING (Soles): Cleaning S/89-150. Plumbing S/30-180. Electrician S/50-80. Locksmith S/40-80. Painting S/200-350. Moving S/150+. Beauty S/45. All prices include 18% IGV + S/2 service fee.
+
+HOW TO BOOK:
+1. On the Home screen, tap a service category (Cleaning, Plumbing, Electrician, Locksmith, Painting, Moving, Beauty).
+2. Browse the services and tap "+ Add" on any you want — they go into your cart.
+3. A cart button appears at the bottom showing your total. Tap it to go to checkout (you may need to log in).
+4. At checkout: choose your district, enter your street address, and pick a preferred date/time.
+5. Review the cost breakdown (subtotal + 18% IGV + S/2 fee) and tap "Confirm Booking".
+6. Payment is made directly to the technician on arrival: YAPE, PLIN, card, or cash.
+7. View and track confirmed bookings in the "Bookings" tab (calendar icon in the bottom nav).
+
+DIAGNOSIS: If the user describes a home problem (leak, power cut, broken lock, dirty apartment, etc.), diagnose it and recommend the right category. Tell them to tap that category on the Home screen.
 
 CURRENT PAGE CONTEXT — what the user is looking at right now:
 ${pageContext}
 
-Use the page context to answer specific questions about services, prices, or bookings the user can see. If asked to summarise a service or booking, use the details above. If asked for materials, suggest Sodimac or Promart.`;
+Use the page context to answer specific questions about services, prices, or bookings. If asked for materials, suggest Sodimac or Promart.`;
 
   const handleSend = async () => {
     if (!input.trim() || busy) return;
