@@ -230,7 +230,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
                     <div className="text-5xl mb-4 opacity-20">📋</div>
                     <p className="text-gray-500 font-bold">{t("No hay trabajos disponibles", "No jobs available")}</p>
                     <p className="text-gray-400 text-sm mt-1">{t("Los nuevos trabajos aparecerán aquí", "New jobs will appear here")}</p>
-                    <button onClick={fetchAll} className="mt-4 bg-indigo-50 text-indigo-600 px-5 py-2 rounded-xl font-bold text-sm">
+                    <button onClick={() => { fetched.current.available = false; fetchTab("available"); }} className="mt-4 bg-indigo-50 text-indigo-600 px-5 py-2 rounded-xl font-bold text-sm">
                       {t("Actualizar", "Refresh")}
                     </button>
                   </div>
