@@ -568,10 +568,13 @@ app.post('/api/profile/become-provider', auth, async (req, res) => {
 
     await supabase.from('users').update({ is_provider: true }).eq('id', req.user.userId);
 
-    const { data: profile, error: profErr } = await supabase
-      .from('provider_profiles')
-      .upsert({ user_id: req.user.userId, bio: bio || '', category, hourly_rate: Number(hourlyRate) || 0 }, { onConflict: 'user_id' })
-      .select().single();
+    const { data: existing } = await supabase
+      .from('provider_profiles').select('id').eq('user_id', req.user.userId).maybeSingle();
+
+    const profileData = { bio: bio || '', category, hourly_rate: Number(hourlyRate) || 0 };
+    const { data: profile, error: profErr } = existing
+      ? await supabase.from('provider_profiles').update(profileData).eq('user_id', req.user.userId).select().single()
+      : await supabase.from('provider_profiles').insert({ user_id: req.user.userId, ...profileData }).select().single();
     if (profErr) throw profErr;
 
     const token = jwt.sign({ userId: req.user.userId, role: req.user.role, isProvider: true }, JWT_SECRET, { expiresIn: '30d' });
