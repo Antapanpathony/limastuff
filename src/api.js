@@ -48,6 +48,13 @@ export const api = {
   rateCustomer: (id, stars) => request(`/provider/jobs/${id}/rate-customer`, { method: 'POST', ...body({ stars }) }),
   getEarnings: () => request('/provider/earnings'),
 
+  // Services
+  getServices: (category) => request(`/services${category ? `?category=${encodeURIComponent(category)}` : ''}`),
+  getMyListings: () => request('/provider/services'),
+  createListing: (data) => request('/provider/services', { method: 'POST', ...body(data) }),
+  updateListing: (id, data) => request(`/provider/services/${id}`, { method: 'PATCH', ...body(data) }),
+  deleteListing: (id) => request(`/provider/services/${id}`, { method: 'DELETE' }),
+
   // Profile
   updateMe: (data) => request('/profile/me', { method: 'PATCH', ...body(data) }),
   becomeProvider: (data) => request('/profile/become-provider', { method: 'POST', ...body(data) }),

@@ -320,13 +320,17 @@ app.post('/api/bookings', auth, async (req, res) => {
     const tax = subtotal * 0.18;
     const fee = 2;
 
+    const providerIds = [...new Set(cart.map(i => i.svc.providerId).filter(Boolean))];
+    const preAssignedProvider = providerIds.length === 1 ? providerIds[0] : null;
+
     const { data: booking, error: bookErr } = await supabase
       .from('bookings')
       .insert({
         code: crypto.randomBytes(4).toString('hex').toUpperCase(),
         customer_id: req.user.userId,
+        provider_id: preAssignedProvider,
         service_category: cart[0]?.svc?.cat || 'general',
-        status: 'pending',
+        status: preAssignedProvider ? 'accepted' : 'pending',
         payment_status: 'unpaid',
         scheduled_date: datetime || null,
         address: address || '',
@@ -391,6 +395,93 @@ app.post('/api/bookings/:id/rate', auth, async (req, res) => {
       stars,
       type: 'provider_service',
     }, { onConflict: 'booking_id,type' });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+const mapService = (s) => ({
+  id: s.id,
+  providerId: s.provider_id,
+  providerName: s.provider?.name || null,
+  category: s.category,
+  cat: s.category,
+  name: { es: s.name_es, en: s.name_en },
+  desc: { es: s.desc_es || '', en: s.desc_en || '' },
+  price: Number(s.price),
+  dur: s.duration || '',
+  active: s.active,
+});
+
+// ─── Services (public) ───────────────────────────────────────────────────────
+app.get('/api/services', async (req, res) => {
+  try {
+    const { category } = req.query;
+    let query = supabase
+      .from('services')
+      .select('*, provider:users!provider_id(name)')
+      .eq('active', true)
+      .order('created_at', { ascending: false });
+    if (category) query = query.eq('category', category);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json(data.map(mapService));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Provider service listings ────────────────────────────────────────────────
+app.get('/api/provider/services', auth, requireProvider, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('services').select('*')
+      .eq('provider_id', req.user.userId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data.map(mapService));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/provider/services', auth, requireProvider, async (req, res) => {
+  try {
+    const { nameEs, nameEn, descEs, descEn, price, duration, category } = req.body;
+    if (!nameEs || !nameEn || !price) return res.status(400).json({ error: 'Name and price are required' });
+    const { data: profile } = await supabase
+      .from('provider_profiles').select('category').eq('user_id', req.user.userId).maybeSingle();
+    const cat = category || profile?.category || 'general';
+    const { data, error } = await supabase
+      .from('services')
+      .insert({ provider_id: req.user.userId, category: cat, name_es: nameEs, name_en: nameEn, desc_es: descEs || '', desc_en: descEn || '', price: Number(price), duration: duration || '' })
+      .select().single();
+    if (error) throw error;
+    res.json(mapService(data));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/provider/services/:id', auth, requireProvider, async (req, res) => {
+  try {
+    const { nameEs, nameEn, descEs, descEn, price, duration, active } = req.body;
+    const update = {};
+    if (nameEs !== undefined) update.name_es = nameEs;
+    if (nameEn !== undefined) update.name_en = nameEn;
+    if (descEs !== undefined) update.desc_es = descEs;
+    if (descEn !== undefined) update.desc_en = descEn;
+    if (price !== undefined) update.price = Number(price);
+    if (duration !== undefined) update.duration = duration;
+    if (active !== undefined) update.active = active;
+    const { data, error } = await supabase
+      .from('services').update(update)
+      .eq('id', req.params.id).eq('provider_id', req.user.userId)
+      .select().single();
+    if (error) throw error;
+    res.json(mapService(data));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/provider/services/:id', auth, requireProvider, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('services').delete()
+      .eq('id', req.params.id).eq('provider_id', req.user.userId);
     if (error) throw error;
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
