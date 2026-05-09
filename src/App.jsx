@@ -260,16 +260,11 @@ function getPageContext({ page, catSlug, cart, lang }) {
   switch (page) {
     case "home":
       return `The user is on the PeruServ Home page.
-Available service categories: ${CATEGORIES.map(c => `${c.icon} ${c.name[lang]} (${c.slug})`).join(", ")}.
-Featured services:
-${SERVICES.map(s => `- ${s.name[lang]}: ${s.desc[lang]} Price: S/${s.price}. Duration: ${s.dur}. Rating: ${s.stars}★ (${s.reviews} reviews).`).join("\n")}`;
+Available service categories: ${CATEGORIES.map(c => `${c.icon} ${c.name[lang]} (${c.slug})`).join(", ")}.`;
 
     case "category": {
       const cat = CATEGORIES.find(c => c.slug === catSlug);
-      const svcs = SERVICES.filter(s => s.cat === catSlug);
-      return `The user is browsing the ${cat?.name[lang] || catSlug} category.
-Services shown on screen:
-${svcs.map(s => `- ${s.name[lang]}: ${s.desc[lang]} Price: S/${s.price}. Duration: ${s.dur}. Rating: ${s.stars}★ (${s.reviews} reviews).`).join("\n")}`;
+      return `The user is browsing the ${cat?.name[lang] || catSlug} category.`;
     }
 
     case "checkout": {
@@ -772,7 +767,16 @@ function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) 
 
 function CategoryPage({ slug, nav, addToCart, t, lang, toggleLang }) {
   const cat = CATEGORIES.find((c) => c.slug === slug);
-  const svcs = SERVICES.filter((s) => s.cat === slug);
+  const [svcs, setSvcs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.getServices(slug)
+      .then(setSvcs)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [slug]);
 
   return (
     <div>
@@ -784,22 +788,33 @@ function CategoryPage({ slug, nav, addToCart, t, lang, toggleLang }) {
         lang={lang}
       />
       <div className="p-4 space-y-4">
-        {svcs.map((svc) => (
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : svcs.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="text-5xl mb-4 opacity-20">{cat?.icon}</div>
+            <p className="text-gray-500 font-bold">{lang === "es" ? "No hay servicios disponibles aún" : "No services available yet"}</p>
+          </div>
+        ) : svcs.map((svc) => (
           <div key={svc.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <div className="flex justify-between items-start mb-2">
+            <div className="flex justify-between items-start mb-1">
               <h3 className="font-bold text-gray-800 text-lg leading-tight flex-1 pr-4">
                 {svc.name[lang]}
               </h3>
               <span className="text-indigo-600 font-black text-xl">S/ {svc.price}</span>
             </div>
-            <p className="text-gray-500 text-sm leading-relaxed mb-4">{svc.desc[lang]}</p>
+            {svc.providerName && (
+              <p className="text-xs text-indigo-500 font-bold mb-2">👤 {svc.providerName}</p>
+            )}
+            {svc.desc[lang] && (
+              <p className="text-gray-500 text-sm leading-relaxed mb-3">{svc.desc[lang]}</p>
+            )}
             <div className="flex justify-between items-center">
-              <div className="flex gap-4 text-xs font-bold text-gray-400">
-                <span className="flex items-center gap-1">⏱ {svc.dur}</span>
-                <span className="flex items-center gap-1 text-amber-500">
-                  ⭐ {svc.stars} ({svc.reviews})
-                </span>
-              </div>
+              {svc.dur ? (
+                <span className="text-xs font-bold text-gray-400 flex items-center gap-1">⏱ {svc.dur}</span>
+              ) : <span />}
               <button
                 onClick={() => addToCart(svc)}
                 className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm hover:bg-indigo-700 active:scale-95 transition-all"

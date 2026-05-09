@@ -92,14 +92,22 @@ function RateCustomerModal({ job, lang, onClose }) {
   );
 }
 
+const EMPTY_LISTING = { nameEs: "", nameEn: "", descEs: "", descEn: "", price: "", dur: "" };
+
 export default function ProviderDashboard({ user, nav, lang, toggleLang, notify }) {
   const [tab, setTab] = useState("available");
   const [available, setAvailable] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
   const [earnings, setEarnings] = useState(null);
+  const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [ratingJob, setRatingJob] = useState(null);
-  const fetched = React.useRef({ available: false, jobs: false, earnings: false });
+  const [showNewListing, setShowNewListing] = useState(false);
+  const [newListing, setNewListing] = useState(EMPTY_LISTING);
+  const [savingListing, setSavingListing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(EMPTY_LISTING);
+  const fetched = React.useRef({ available: false, jobs: false, earnings: false, listings: false });
 
   const t = (es, en) => (lang === "es" ? es : en);
 
@@ -115,6 +123,9 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
       } else if (t === "earnings") {
         setEarnings(await api.getEarnings());
         fetched.current.earnings = true;
+      } else if (t === "listings") {
+        setListings(await api.getMyListings());
+        fetched.current.listings = true;
       }
     } catch (err) {
       notify(err.message);
@@ -130,8 +141,54 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
     const alreadyFetched =
       (next === "available" && fetched.current.available) ||
       (next === "active" && fetched.current.jobs) ||
-      (next === "earnings" && fetched.current.earnings);
+      (next === "earnings" && fetched.current.earnings) ||
+      (next === "listings" && fetched.current.listings);
     if (!alreadyFetched) fetchTab(next);
+  };
+
+  const handleCreateListing = async (e) => {
+    e.preventDefault();
+    if (!newListing.nameEs || !newListing.nameEn || !newListing.price) return;
+    setSavingListing(true);
+    try {
+      const created = await api.createListing({
+        nameEs: newListing.nameEs, nameEn: newListing.nameEn,
+        descEs: newListing.descEs, descEn: newListing.descEn,
+        price: newListing.price, duration: newListing.dur,
+      });
+      setListings(p => [created, ...p]);
+      setNewListing(EMPTY_LISTING);
+      setShowNewListing(false);
+    } catch (err) { notify(err.message); }
+    finally { setSavingListing(false); }
+  };
+
+  const handleSaveEdit = async (id) => {
+    setSavingListing(true);
+    try {
+      const updated = await api.updateListing(id, {
+        nameEs: editForm.nameEs, nameEn: editForm.nameEn,
+        descEs: editForm.descEs, descEn: editForm.descEn,
+        price: editForm.price, duration: editForm.dur,
+      });
+      setListings(p => p.map(l => l.id === id ? updated : l));
+      setEditingId(null);
+    } catch (err) { notify(err.message); }
+    finally { setSavingListing(false); }
+  };
+
+  const handleToggleActive = async (listing) => {
+    try {
+      const updated = await api.updateListing(listing.id, { active: !listing.active });
+      setListings(p => p.map(l => l.id === listing.id ? updated : l));
+    } catch (err) { notify(err.message); }
+  };
+
+  const handleDeleteListing = async (id) => {
+    try {
+      await api.deleteListing(id);
+      setListings(p => p.filter(l => l.id !== id));
+    } catch (err) { notify(err.message); }
   };
 
   const handleAccept = async (jobId) => {
@@ -166,6 +223,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
   const tabs = [
     { id: "available", label: t("Disponibles", "Available"), count: available.length },
     { id: "active", label: t("Activos", "Active"), count: activeJobs.length },
+    { id: "listings", label: t("Servicios", "Listings"), count: listings.filter(l => l.active).length },
     { id: "earnings", label: t("Ganancias", "Earnings") },
   ];
 
@@ -357,6 +415,134 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
                     )}
                   </>
                 )}
+              </div>
+            )}
+
+            {tab === "listings" && (
+              <div className="space-y-4">
+                <button
+                  onClick={() => { setShowNewListing(v => !v); setNewListing(EMPTY_LISTING); }}
+                  className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm hover:bg-indigo-700 active:scale-95 transition-all"
+                >
+                  {showNewListing ? t("Cancelar", "Cancel") : `+ ${t("Nuevo servicio", "New listing")}`}
+                </button>
+
+                {showNewListing && (
+                  <form onSubmit={handleCreateListing} className="bg-indigo-50 rounded-2xl p-5 space-y-3 border border-indigo-100">
+                    <p className="text-xs font-black text-indigo-600 uppercase tracking-widest">{t("Nuevo servicio", "New listing")}</p>
+                    {[
+                      { key: "nameEs", label: t("Nombre (ES)", "Name (ES)") },
+                      { key: "nameEn", label: t("Nombre (EN)", "Name (EN)") },
+                      { key: "descEs", label: t("Descripción (ES)", "Description (ES)") },
+                      { key: "descEn", label: t("Descripción (EN)", "Description (EN)") },
+                    ].map(({ key, label }) => (
+                      <div key={key}>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">{label}</label>
+                        <input
+                          className="w-full bg-white rounded-xl p-3 text-sm border-0 focus:ring-2 focus:ring-indigo-500"
+                          value={newListing[key]}
+                          onChange={e => setNewListing(p => ({ ...p, [key]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">{t("Precio (S/)", "Price (S/)")}</label>
+                        <input type="number" min="0" step="0.5"
+                          className="w-full bg-white rounded-xl p-3 text-sm border-0 focus:ring-2 focus:ring-indigo-500"
+                          value={newListing.price}
+                          onChange={e => setNewListing(p => ({ ...p, price: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">{t("Duración", "Duration")}</label>
+                        <input placeholder="e.g. 2h"
+                          className="w-full bg-white rounded-xl p-3 text-sm border-0 focus:ring-2 focus:ring-indigo-500"
+                          value={newListing.dur}
+                          onChange={e => setNewListing(p => ({ ...p, dur: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <button disabled={savingListing || !newListing.nameEs || !newListing.nameEn || !newListing.price}
+                      className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black text-sm disabled:opacity-40"
+                    >
+                      {savingListing ? "…" : t("Publicar", "Publish")}
+                    </button>
+                  </form>
+                )}
+
+                {listings.length === 0 && !showNewListing && (
+                  <div className="text-center py-12">
+                    <div className="text-5xl mb-4 opacity-20">🛠</div>
+                    <p className="text-gray-500 font-bold">{t("Aún no tienes servicios", "No listings yet")}</p>
+                    <p className="text-gray-400 text-sm mt-1">{t("Crea tu primer servicio para que los clientes puedan encontrarte", "Create your first listing so customers can find you")}</p>
+                  </div>
+                )}
+
+                {listings.map(listing => (
+                  <div key={listing.id} className={`bg-white rounded-2xl p-5 border shadow-sm ${listing.active ? "border-gray-100" : "border-dashed border-gray-200 opacity-60"}`}>
+                    {editingId === listing.id ? (
+                      <div className="space-y-3">
+                        {[
+                          { key: "nameEs", label: "ES" }, { key: "nameEn", label: "EN" },
+                          { key: "descEs", label: `Desc ES` }, { key: "descEn", label: `Desc EN` },
+                        ].map(({ key, label }) => (
+                          <div key={key}>
+                            <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{label}</label>
+                            <input className="w-full bg-gray-50 rounded-xl p-3 text-sm border-0"
+                              value={editForm[key]}
+                              onChange={e => setEditForm(p => ({ ...p, [key]: e.target.value }))}
+                            />
+                          </div>
+                        ))}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{t("Precio", "Price")}</label>
+                            <input type="number" min="0" step="0.5" className="w-full bg-gray-50 rounded-xl p-3 text-sm border-0"
+                              value={editForm.price} onChange={e => setEditForm(p => ({ ...p, price: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{t("Duración", "Duration")}</label>
+                            <input className="w-full bg-gray-50 rounded-xl p-3 text-sm border-0"
+                              value={editForm.dur} onChange={e => setEditForm(p => ({ ...p, dur: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => handleSaveEdit(listing.id)} disabled={savingListing}
+                            className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl font-black text-sm disabled:opacity-40">
+                            {savingListing ? "…" : t("Guardar", "Save")}
+                          </button>
+                          <button onClick={() => setEditingId(null)} className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-xl font-black text-sm">
+                            {t("Cancelar", "Cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-start mb-1">
+                          <h3 className="font-bold text-gray-800 text-base flex-1 pr-2">{listing.name[lang]}</h3>
+                          <span className="text-indigo-600 font-black">S/ {listing.price}</span>
+                        </div>
+                        {listing.desc[lang] && <p className="text-gray-400 text-xs mb-3">{listing.desc[lang]}</p>}
+                        {listing.dur && <p className="text-gray-400 text-xs mb-3">⏱ {listing.dur}</p>}
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={() => { setEditingId(listing.id); setEditForm({ nameEs: listing.name.es, nameEn: listing.name.en, descEs: listing.desc.es, descEn: listing.desc.en, price: listing.price, dur: listing.dur }); }}
+                            className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-xl font-bold text-xs">
+                            ✏️ {t("Editar", "Edit")}
+                          </button>
+                          <button onClick={() => handleToggleActive(listing)}
+                            className={`flex-1 py-2 rounded-xl font-bold text-xs ${listing.active ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+                            {listing.active ? t("Pausar", "Pause") : t("Activar", "Activate")}
+                          </button>
+                          <button onClick={() => handleDeleteListing(listing.id)}
+                            className="px-3 py-2 rounded-xl bg-red-50 text-red-500 font-bold text-xs">
+                            🗑
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
