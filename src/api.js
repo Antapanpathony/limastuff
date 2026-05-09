@@ -50,6 +50,7 @@ export const api = {
 
   // Profile
   updateMe: (data) => request('/profile/me', { method: 'PATCH', ...body(data) }),
+  becomeProvider: (data) => request('/profile/become-provider', { method: 'POST', ...body(data) }),
   getAddresses: () => request('/profile/addresses'),
   addAddress: (data) => request('/profile/addresses', { method: 'POST', ...body(data) }),
   deleteAddress: (id) => request(`/profile/addresses/${id}`, { method: 'DELETE' }),

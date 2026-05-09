@@ -112,6 +112,11 @@ const DICT = {
     status_cancelled: "Cancelado",
     need_services: "Necesito servicios",
     offer_services: "Ofrezco servicios",
+    both_roles: "Ambos",
+    become_provider: "Convertirme en Maestro",
+    become_provider_sub: "Empieza a ofrecer servicios",
+    become_provider_title: "Activa tu cuenta de Maestro",
+    become_provider_done: "¡Cuenta de Maestro activada!",
     specialty: "Especialidad",
     bio: "Descripción breve",
     bio_placeholder: "Ej: Gasfitero con 10 años de experiencia en Lima",
@@ -203,6 +208,11 @@ const DICT = {
     status_cancelled: "Cancelled",
     need_services: "I need services",
     offer_services: "I offer services",
+    both_roles: "Both",
+    become_provider: "Become a Provider",
+    become_provider_sub: "Start offering services",
+    become_provider_title: "Activate your Provider account",
+    become_provider_done: "Provider account activated!",
     specialty: "Specialty",
     bio: "Short description",
     bio_placeholder: "Ex: Plumber with 10 years of experience in Lima",
@@ -385,7 +395,7 @@ export default function App() {
   const cartTotal = cart.reduce((s, i) => s + i.svc.price * i.qty, 0);
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const isAuthPage = ["login", "register"].includes(page);
-  const isProvider = user?.role === "provider";
+  const isProvider = user?.isProvider ?? user?.role === "provider";
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-gray-50 relative shadow-2xl overflow-x-hidden font-sans pb-20">
@@ -497,6 +507,23 @@ export default function App() {
             setUnreadCount={setUnreadCount}
           />
         )}
+        {page === "become-provider" && (
+          <BecomeProviderPage
+            nav={nav}
+            notify={notify}
+            t={t}
+            lang={lang}
+            toggleLang={toggleLang}
+            onSuccess={(token, providerProfile) => {
+              localStorage.setItem("ps_token", token);
+              const updated = { ...user, isProvider: true, role: "provider", providerProfile };
+              ls.set("ps_user", updated);
+              setUser(updated);
+              notify(t("become_provider_done"));
+              nav("provider-dashboard");
+            }}
+          />
+        )}
         {page === "login" && (
           <LoginPage login={handleLogin} nav={nav} t={t} lang={lang} />
         )}
@@ -529,14 +556,19 @@ export default function App() {
             onClick={() => nav("home")}
           />
           <NavBtn
-            icon={isProvider ? <Briefcase size={22} /> : <Calendar size={22} />}
-            label={isProvider ? t("nav_jobs") : t("nav_bookings")}
-            active={page === "bookings" || page === "provider-dashboard"}
-            onClick={() => {
-              if (!user) { nav("login"); return; }
-              nav(isProvider ? "provider-dashboard" : "bookings");
-            }}
+            icon={<Calendar size={22} />}
+            label={t("nav_bookings")}
+            active={page === "bookings"}
+            onClick={() => (user ? nav("bookings") : nav("login"))}
           />
+          {isProvider && (
+            <NavBtn
+              icon={<Briefcase size={22} />}
+              label={t("nav_jobs")}
+              active={page === "provider-dashboard"}
+              onClick={() => nav("provider-dashboard")}
+            />
+          )}
           {user?.role === "admin" && (
             <NavBtn
               icon={<ShieldCheck size={22} />}
@@ -647,7 +679,7 @@ function HomePage({ nav, setShowChat, t, lang, toggleLang, user, unreadCount }) 
           </div>
         </div>
         <div className="flex gap-2 items-center">
-          {user?.role === "provider" && (
+          {(user?.isProvider ?? user?.role === "provider") && (
             <span className="bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
               {t("provider_badge")}
             </span>
@@ -1129,7 +1161,7 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
           </div>
           <h2 className="text-xl font-bold text-gray-800">{user.name}</h2>
           <p className="text-gray-400 text-sm">{user.email}</p>
-          {user.role === "provider" && (
+          {(user.isProvider ?? user.role === "provider") && (
             <span className="mt-2 bg-indigo-100 text-indigo-700 text-xs font-black px-3 py-1 rounded-full uppercase tracking-wide">
               {lang === "es" ? "Maestro" : "Provider"}
               {user.providerProfile?.category
@@ -1161,7 +1193,7 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
 
         {tab === "info" && (
           <>
-            {user.role === "provider" && user.providerProfile && (
+            {(user.isProvider ?? user.role === "provider") && user.providerProfile && (
               <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-5 text-white">
                 <p className="text-indigo-200 text-xs font-black uppercase tracking-widest mb-3">
                   {lang === "es" ? "Resumen de Ganancias" : "Earnings Summary"}
@@ -1183,6 +1215,7 @@ function ProfilePage({ user, logout, nav, notify, t, lang, toggleLang }) {
               { key: "setting_account", onClick: () => nav("account-info") },
               { key: "setting_addresses", onClick: () => nav("saved-addresses") },
               { key: "setting_notifications", onClick: () => nav("notifications") },
+              ...(!( user.isProvider ?? user.role === "provider") ? [{ key: "become_provider", onClick: () => nav("become-provider") }] : []),
               { key: "setting_language", onClick: toggleLang },
             ].map(({ key, onClick }) => (
               <button
@@ -1488,7 +1521,7 @@ function LoginPage({ login, nav, t, lang }) {
       const { token, user } = await api.login({ email, password: pass });
       localStorage.setItem("ps_token", token);
       login(user);
-      nav(user.role === "provider" ? "provider-dashboard" : "home");
+      nav("home");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1540,6 +1573,83 @@ function LoginPage({ login, nav, t, lang }) {
   );
 }
 
+function BecomeProviderPage({ nav, notify, t, lang, toggleLang, onSuccess }) {
+  const [form, setForm] = useState({ category: "plumbing", bio: "", hourlyRate: "" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const f = (key) => (val) => setForm((p) => ({ ...p, [key]: val }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const { token, providerProfile } = await api.becomeProvider({
+        category: form.category,
+        bio: form.bio,
+        hourlyRate: form.hourlyRate,
+      });
+      onSuccess(token, providerProfile);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <Header title={t("become_provider_title")} nav={nav} back="profile" toggleLang={toggleLang} lang={lang} />
+      <div className="p-6 space-y-5">
+        <p className="text-gray-500 text-sm">{t("become_provider_sub")}</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">{t("specialty")}</label>
+            <select
+              className="w-full bg-gray-50 border-0 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-600 text-sm"
+              value={form.category}
+              onChange={(e) => f("category")(e.target.value)}
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c.slug} value={c.slug}>{c.icon} {c.name[lang]}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">{t("bio")}</label>
+            <textarea
+              className="w-full bg-gray-50 border-0 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-600 text-sm resize-none"
+              rows={3}
+              placeholder={t("bio_placeholder")}
+              value={form.bio}
+              onChange={(e) => f("bio")(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">
+              {lang === "es" ? "Tarifa por hora (S/)" : "Hourly Rate (S/)"}
+            </label>
+            <input
+              type="number"
+              min="0"
+              className="w-full bg-gray-50 border-0 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-600 text-sm"
+              value={form.hourlyRate}
+              onChange={(e) => f("hourlyRate")(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-red-500 text-sm font-bold bg-red-50 p-3 rounded-xl">{error}</p>}
+          <button
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white p-5 rounded-2xl font-black text-lg shadow-xl shadow-indigo-200 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {loading ? "..." : t("become_provider")}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function RegisterPage({ login, nav, t, lang }) {
   const [role, setRole] = useState("customer");
   const [form, setForm] = useState({ name: "", email: "", pass: "", category: "plumbing", bio: "" });
@@ -1559,12 +1669,12 @@ function RegisterPage({ login, nav, t, lang }) {
         email: form.email,
         password: form.pass,
         role,
-        category: role === "provider" ? form.category : undefined,
+        category: role !== "customer" ? form.category : undefined,
         bio: form.bio,
       });
       localStorage.setItem("ps_token", token);
       login(user);
-      nav(role === "provider" ? "provider-dashboard" : "home");
+      nav(role !== "customer" ? "provider-dashboard" : "home");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1574,29 +1684,27 @@ function RegisterPage({ login, nav, t, lang }) {
 
   return (
     <div className="min-h-screen bg-white p-8 flex flex-col justify-center">
-      <div className="text-5xl mb-4">{role === "provider" ? "🔨" : "✍️"}</div>
+      <div className="text-5xl mb-4">{role === "customer" ? "✍️" : role === "both" ? "🏠🔨" : "🔨"}</div>
       <h2 className="text-3xl font-black text-gray-900 leading-tight mb-6">{t("create_account")}</h2>
 
       {/* Role toggle */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl mb-6">
-        <button
-          type="button"
-          onClick={() => setRole("customer")}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-            role === "customer" ? "bg-white shadow text-indigo-600" : "text-gray-400"
-          }`}
-        >
-          🏠 {t("need_services")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setRole("provider")}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-            role === "provider" ? "bg-white shadow text-indigo-600" : "text-gray-400"
-          }`}
-        >
-          🔨 {t("offer_services")}
-        </button>
+        {[
+          { value: "customer", icon: "🏠", label: t("need_services") },
+          { value: "both", icon: "🏠🔨", label: t("both_roles") },
+          { value: "provider", icon: "🔨", label: t("offer_services") },
+        ].map(({ value, icon, label }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setRole(value)}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              role === value ? "bg-white shadow text-indigo-600" : "text-gray-400"
+            }`}
+          >
+            {icon} {label}
+          </button>
+        ))}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -1628,7 +1736,7 @@ function RegisterPage({ login, nav, t, lang }) {
           />
         </div>
 
-        {role === "provider" && (
+        {role !== "customer" && (
           <>
             <div>
               <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-1">

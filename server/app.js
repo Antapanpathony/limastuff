@@ -184,7 +184,10 @@ const pushNotification = async (userId, type, title, body) => {
 };
 
 const mapUser = (u) => ({
-  id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.created_at,
+  id: u.id, email: u.email, name: u.name,
+  role: u.is_provider && u.role === 'customer' ? 'provider' : u.role,
+  isProvider: u.is_provider ?? false,
+  createdAt: u.created_at,
 });
 
 const mapProfile = (p) => p ? ({
@@ -237,7 +240,7 @@ const auth = (req, res, next) => {
 };
 
 const requireProvider = (req, res, next) =>
-  req.user.role !== 'provider'
+  !req.user.isProvider
     ? res.status(403).json({ error: 'Provider access required' })
     : next();
 
@@ -251,7 +254,8 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, role = 'customer', category, bio, hourlyRate } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'Missing required fields' });
-    if (role === 'provider' && !category) return res.status(400).json({ error: 'Category is required for providers' });
+    const wantsProvider = role === 'provider' || role === 'both';
+    if (wantsProvider && !category) return res.status(400).json({ error: 'Category is required for providers' });
 
     const { data: existing } = await supabase.from('users').select('id').eq('email', email).maybeSingle();
     if (existing) return res.status(409).json({ error: 'Email already registered' });
@@ -259,12 +263,12 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPass = await bcrypt.hash(password, 10);
     const { data: user, error: userErr } = await supabase
       .from('users')
-      .insert({ email, name, role, password: hashedPass })
-      .select('id, email, name, role, created_at').single();
+      .insert({ email, name, role: 'customer', is_provider: wantsProvider, password: hashedPass })
+      .select('id, email, name, role, is_provider, created_at').single();
     if (userErr) throw userErr;
 
     let providerProfile = null;
-    if (role === 'provider') {
+    if (wantsProvider) {
       const { data: profile, error: profErr } = await supabase
         .from('provider_profiles')
         .insert({ user_id: user.id, bio: bio || '', category, hourly_rate: Number(hourlyRate) || 0 })
@@ -273,7 +277,7 @@ app.post('/api/auth/register', async (req, res) => {
       providerProfile = mapProfile(profile);
     }
 
-    const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ userId: user.id, role: user.role, isProvider: user.is_provider }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { ...mapUser(user), providerProfile } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -290,7 +294,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
 
     const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
-    const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ userId: user.id, role: user.role, isProvider: user.is_provider ?? false }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { ...mapUser(user), providerProfile: mapProfile(profile) } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -298,7 +302,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', auth, async (req, res) => {
   try {
     const { data: user } = await supabase
-      .from('users').select('id, email, name, role, created_at')
+      .from('users').select('id, email, name, role, is_provider, created_at')
       .eq('id', req.user.userId).maybeSingle();
     if (!user) return res.status(404).json({ error: 'User not found' });
     const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
@@ -549,9 +553,29 @@ app.patch('/api/profile/me', auth, async (req, res) => {
     if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
     const { data, error } = await supabase
       .from('users').update({ name: name.trim() }).eq('id', req.user.userId)
-      .select('id, email, name, role, created_at').single();
+      .select('id, email, name, role, is_provider, created_at').single();
     if (error) throw error;
     res.json(mapUser(data));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Become provider ──────────────────────────────────────────────────────────
+app.post('/api/profile/become-provider', auth, async (req, res) => {
+  try {
+    if (req.user.isProvider) return res.status(400).json({ error: 'Already a provider' });
+    const { category, bio, hourlyRate } = req.body;
+    if (!category) return res.status(400).json({ error: 'Category is required' });
+
+    await supabase.from('users').update({ is_provider: true }).eq('id', req.user.userId);
+
+    const { data: profile, error: profErr } = await supabase
+      .from('provider_profiles')
+      .upsert({ user_id: req.user.userId, bio: bio || '', category, hourly_rate: Number(hourlyRate) || 0 }, { onConflict: 'user_id' })
+      .select().single();
+    if (profErr) throw profErr;
+
+    const token = jwt.sign({ userId: req.user.userId, role: req.user.role, isProvider: true }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, providerProfile: mapProfile(profile) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -708,7 +732,7 @@ app.post('/api/surveys/:id/respond', auth, async (req, res) => {
 app.get('/api/admin/users', auth, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('users').select('id, email, name, role, created_at').order('created_at', { ascending: false });
+      .from('users').select('id, email, name, role, is_provider, created_at').order('created_at', { ascending: false });
     if (error) throw error;
     res.json(data.map(mapUser));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -718,9 +742,14 @@ app.patch('/api/admin/users/:id', auth, requireAdmin, async (req, res) => {
   try {
     const { role } = req.body;
     if (!['customer', 'provider', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+    const update = role === 'provider'
+      ? { role: 'customer', is_provider: true }
+      : role === 'customer'
+        ? { role: 'customer', is_provider: false }
+        : { role: 'admin' };
     const { data, error } = await supabase
-      .from('users').update({ role }).eq('id', req.params.id)
-      .select('id, email, name, role, created_at').single();
+      .from('users').update(update).eq('id', req.params.id)
+      .select('id, email, name, role, is_provider, created_at').single();
     if (error) throw error;
     res.json(mapUser(data));
   } catch (err) { res.status(500).json({ error: err.message }); }
