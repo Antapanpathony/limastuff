@@ -6,6 +6,7 @@
     email text unique not null,
     name text not null,
     role text not null default 'customer',  -- 'customer' | 'provider' | 'admin'
+    is_provider boolean default false,
     password text not null,
     created_at timestamptz default now()
   );
@@ -296,6 +297,20 @@ app.post('/api/auth/login', async (req, res) => {
     const { data: profile } = await supabase.from('provider_profiles').select('*').eq('user_id', user.id).maybeSingle();
     const token = jwt.sign({ userId: user.id, role: user.role, isProvider: user.is_provider ?? false }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { ...mapUser(user), providerProfile: mapProfile(profile) } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/auth/admin-login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const adminUser = process.env.ADMIN_USER || 'admin';
+    const adminPass = process.env.ADMIN_PASSWORD || '123456';
+
+    if (username === adminUser && password === adminPass) {
+      const token = jwt.sign({ userId: 'admin', role: 'admin' }, JWT_SECRET, { expiresIn: '30d' });
+      return res.json({ token, user: { id: 'admin', name: 'Administrator', role: 'admin' } });
+    }
+    res.status(401).json({ error: 'Invalid admin credentials' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1,7 +1,12 @@
-const getToken = () => localStorage.getItem('ps_token');
+const getToken = (path = "") => {
+  if (path.startsWith('/admin')) {
+    return localStorage.getItem('ps_admin_token') || localStorage.getItem('ps_token');
+  }
+  return localStorage.getItem('ps_token');
+};
 
 const request = async (path, options = {}) => {
-  const token = getToken();
+  const token = getToken(path);
   try {
     const res = await fetch(`/api${path}`, {
       headers: {
@@ -33,6 +38,7 @@ export const api = {
   // Auth
   register: (data) => request('/auth/register', { method: 'POST', ...body(data) }),
   login: (data) => request('/auth/login', { method: 'POST', ...body(data) }),
+  adminLogin: (data) => request('/auth/admin-login', { method: 'POST', ...body(data) }),
   me: () => request('/auth/me'),
 
   // Customer bookings

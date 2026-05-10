@@ -323,17 +323,24 @@ function Spinner() {
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 export default function AdminDashboard({ user, nav, lang, toggleLang }) {
   const [tab, setTab] = useState("users");
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState(() => !!localStorage.getItem('ps_admin_token'));
+  const adminUser = JSON.parse(localStorage.getItem('ps_admin_user') || 'null');
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
 
-  const handleAdminLogin = (e) => {
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
-    if (loginForm.username === "admin" && loginForm.password === "123456") {
+    setLoginError("");
+    try {
+      const data = await api.adminLogin(loginForm);
+      localStorage.setItem('ps_admin_token', data.token);
+      localStorage.setItem('ps_admin_user', JSON.stringify(data.user));
       setAuthed(true);
-      setLoginError("");
-    } else {
-      setLoginError(lang === "es" ? "Credenciales incorrectas" : "Invalid credentials");
+    } catch (err) {
+      setLoginError(err.message === 'Failed to fetch' 
+        ? (lang === 'es' ? 'Error de conexión' : 'Connection error')
+        : (lang === "es" ? "Credenciales incorrectas" : "Invalid credentials")
+      );
     }
   };
 
@@ -390,16 +397,24 @@ export default function AdminDashboard({ user, nav, lang, toggleLang }) {
               {lang === "es" ? "Panel Admin" : "Admin Panel"}
             </h1>
             <p className="text-xs text-gray-400">
-              {user?.name || (lang === 'es' ? 'Administrador' : 'Administrator')}
+              {adminUser?.name || (lang === 'es' ? 'Administrador' : 'Administrator')}
             </p>
           </div>
-          <button
-            onClick={toggleLang}
-            className="flex items-center gap-1 bg-gray-100 px-3 py-1.5 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
-          >
-            <Languages size={16} />
-            {lang === "es" ? "EN" : "ES"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={toggleLang}
+              className="flex items-center gap-1 bg-gray-100 px-3 py-1.5 rounded-full text-sm font-medium hover:bg-gray-200 transition-colors"
+            >
+              <Languages size={16} />
+              {lang === "es" ? "EN" : "ES"}
+            </button>
+            <button
+              onClick={() => { localStorage.removeItem('ps_admin_token'); localStorage.removeItem('ps_admin_user'); setAuthed(false); }}
+              className="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-full text-sm font-bold hover:bg-rose-100 transition-colors"
+            >
+              {lang === "es" ? "Salir" : "Exit"}
+            </button>
+          </div>
         </div>
         <div className="flex gap-2">
           {tabs.map(t => (
