@@ -897,6 +897,34 @@ app.post('/api/admin/surveys', auth, requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/admin/surveys/:id/results', auth, requireAdmin, async (req, res) => {
+  try {
+    const { data: survey, error: surveyErr } = await supabase
+      .from('surveys').select('*').eq('id', req.params.id).single();
+    if (surveyErr || !survey) return res.status(404).json({ error: 'Survey not found' });
+
+    const { data: responses, error: respErr } = await supabase
+      .from('survey_responses')
+      .select('answers, created_at, user:users(name, email)')
+      .eq('survey_id', req.params.id)
+      .order('created_at', { ascending: false });
+    if (respErr) throw respErr;
+
+    // Aggregate per question
+    const aggregated = {};
+    for (const q of survey.questions) {
+      aggregated[q.id] = { question: q, answers: [] };
+    }
+    for (const resp of (responses || [])) {
+      for (const [qId, answer] of Object.entries(resp.answers || {})) {
+        if (aggregated[qId]) aggregated[qId].answers.push(answer);
+      }
+    }
+
+    res.json({ survey, responseCount: (responses || []).length, aggregated: Object.values(aggregated) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.patch('/api/admin/surveys/:id', auth, requireAdmin, async (req, res) => {
   try {
     const { active } = req.body;
