@@ -39,17 +39,19 @@ function RateCustomerModal({ job, lang, onClose }) {
   const [selected, setSelected] = useState(0);
   const [hover, setHover] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const submitted = React.useRef(false);
 
   const handleSubmit = async () => {
-    if (!selected) return;
+    if (!selected || submitted.current) return;
+    submitted.current = true;
     setSubmitting(true);
     try {
       await api.rateCustomer(job.id, selected);
       onClose(true, selected);
     } catch {
-      onClose(false);
-    } finally {
+      submitted.current = false;
       setSubmitting(false);
+      onClose(false);
     }
   };
 
@@ -109,6 +111,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(EMPTY_LISTING);
   const fetched = React.useRef({ available: false, jobs: false, earnings: false, listings: false });
+  const ratedJobIds = React.useRef(new Set());
 
   const t = (es, en) => (lang === "es" ? es : en);
 
@@ -219,6 +222,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
     const jobId = ratingJob?.id;
     setRatingJob(null);
     if (submitted && jobId) {
+      ratedJobIds.current.add(jobId);
       setMyJobs(prev => prev.map(j => j.id === jobId ? { ...j, customerRating: stars } : j));
       fetched.current.jobs = false;
       fetchTab("active");
@@ -404,7 +408,7 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
                                 )}
                               </div>
                             </div>
-                            {job.customerRating === null && (
+                            {job.customerRating === null && !ratedJobIds.current.has(job.id) && (
                               <button
                                 onClick={() => setRatingJob(job)}
                                 className="mt-3 w-full text-xs font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 py-2 rounded-lg transition-colors"
