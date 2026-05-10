@@ -389,7 +389,9 @@ export default function AdminDashboard({ user, nav, lang, toggleLang }) {
             <h1 className="text-xl font-bold text-gray-800">
               {lang === "es" ? "Panel Admin" : "Admin Panel"}
             </h1>
-            <p className="text-xs text-gray-400">{user.name}</p>
+            <p className="text-xs text-gray-400">
+              {user?.name || (lang === 'es' ? 'Administrador' : 'Administrator')}
+            </p>
           </div>
           <button
             onClick={toggleLang}

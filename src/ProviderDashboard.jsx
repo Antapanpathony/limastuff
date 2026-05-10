@@ -207,13 +207,21 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
 
   const handleStatusUpdate = async (jobId, newStatus) => {
     setMyJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus } : j));
-    if (newStatus === "completed") notify(t("¡Trabajo completado! 🎉", "Job completed! 🎉"));
-    else notify(t("Trabajo iniciado ✓", "Job started ✓"));
+    
+    if (newStatus === "completed") {
+      notify(t("¡Trabajo completado! 🎉", "Job completed! 🎉"));
+      const job = myJobs.find(j => j.id === jobId);
+      if (job) setRatingJob(job);
+    } else {
+      notify(t("Trabajo iniciado ✓", "Job started ✓"));
+    }
+
     try {
       await api.updateJobStatus(jobId, newStatus);
       fetched.current.earnings = false;
     } catch (err) {
       setMyJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: newStatus === "completed" ? "in_progress" : "accepted" } : j));
+      if (newStatus === "completed") setRatingJob(null);
       notify(err.message);
     }
   };
