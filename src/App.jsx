@@ -471,7 +471,7 @@ export default function App() {
   const handleLogin = (userData) => {
     ls.set("ps_user", userData);
     setUser(userData);
-    registerPush();
+    if (Notification.permission === 'granted') registerPush();
   };
 
   const handleLogout = () => {
@@ -1839,14 +1839,13 @@ function RegisterPage({ login, nav, t, lang }) {
 
   return (
     <div className="min-h-screen bg-white p-8 flex flex-col justify-center">
-      <div className="text-5xl mb-4">{role === "customer" ? "✍️" : role === "both" ? "🏠🔨" : "🔨"}</div>
+      <div className="text-5xl mb-4">{role === "customer" ? "✍️" : "🔨"}</div>
       <h2 className="text-3xl font-black text-gray-900 leading-tight mb-6">{t("create_account")}</h2>
 
       {/* Role toggle */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl mb-6">
         {[
           { value: "customer", icon: "🏠", label: t("need_services") },
-          { value: "both", icon: "🏠🔨", label: t("both_roles") },
           { value: "provider", icon: "🔨", label: t("offer_services") },
         ].map(({ value, icon, label }) => (
           <button
