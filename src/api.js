@@ -92,5 +92,6 @@ export const api = {
   adminGetSurveys: () => request('/admin/surveys'),
   adminCreateSurvey: (data) => request('/admin/surveys', { method: 'POST', ...body(data) }),
   adminUpdateSurvey: (id, data) => request(`/admin/surveys/${id}`, { method: 'PATCH', ...body(data) }),
+  adminGetSurveyResults: (id) => request(`/admin/surveys/${id}/results`),
   adminGetRatings: () => request('/admin/ratings'),
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Languages, Plus, Trash2, ToggleLeft, ToggleRight, Star } from "lucide-react";
+import { Languages, Plus, Trash2, ToggleLeft, ToggleRight, Star, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "./api";
 
 const ROLES = ["customer", "provider", "admin"];
@@ -70,6 +70,104 @@ function QuestionEditor({ question, onChange, onRemove }) {
   );
 }
 
+// ─── Survey results panel ─────────────────────────────────────────────────────
+function SurveyResults({ surveyId, lang, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    api.adminGetSurveyResults(surveyId)
+      .then(setData)
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [surveyId]);
+
+  if (loading) return <div className="pt-2"><Spinner /></div>;
+  if (error) return <p className="text-xs text-rose-500 p-3">{error}</p>;
+  if (!data) return null;
+
+  return (
+    <div className="mt-3 border-t border-gray-100 pt-3 space-y-4">
+      <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
+        {data.responseCount} {lang === "es" ? "respuestas" : "responses"}
+      </p>
+      {data.aggregated.map(({ question: q, answers }) => (
+        <div key={q.id} className="space-y-1.5">
+          <p className="text-xs font-bold text-gray-700">{q.text}</p>
+          {q.type === "rating" && (
+            <RatingAggregate answers={answers} lang={lang} />
+          )}
+          {q.type === "choice" && (
+            <ChoiceAggregate answers={answers} options={q.options || []} lang={lang} />
+          )}
+          {q.type === "text" && (
+            <TextAnswers answers={answers} lang={lang} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RatingAggregate({ answers, lang }) {
+  if (!answers.length) return <p className="text-xs text-gray-400">{lang === "es" ? "Sin respuestas" : "No answers"}</p>;
+  const avg = answers.reduce((s, a) => s + Number(a), 0) / answers.length;
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  answers.forEach(a => { if (counts[a] !== undefined) counts[a]++; });
+  return (
+    <div className="space-y-1">
+      <p className="text-lg font-black text-amber-500">⭐ {avg.toFixed(1)} <span className="text-xs text-gray-400 font-normal">/ 5</span></p>
+      {[5, 4, 3, 2, 1].map(star => {
+        const pct = answers.length ? (counts[star] / answers.length) * 100 : 0;
+        return (
+          <div key={star} className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-gray-400 w-4">{star}★</span>
+            <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+              <div className="h-2 bg-amber-400 rounded-full" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="text-[10px] text-gray-400 w-5">{counts[star]}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChoiceAggregate({ answers, options, lang }) {
+  if (!answers.length) return <p className="text-xs text-gray-400">{lang === "es" ? "Sin respuestas" : "No answers"}</p>;
+  const counts = {};
+  options.forEach(o => { counts[o] = 0; });
+  answers.forEach(a => { if (counts[a] !== undefined) counts[a]++; else counts[a] = 1; });
+  return (
+    <div className="space-y-1">
+      {Object.entries(counts).map(([opt, count]) => {
+        const pct = answers.length ? (count / answers.length) * 100 : 0;
+        return (
+          <div key={opt} className="flex items-center gap-2">
+            <span className="text-[10px] text-gray-600 w-24 truncate">{opt}</span>
+            <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+              <div className="h-2 bg-indigo-400 rounded-full" style={{ width: `${pct}%` }} />
+            </div>
+            <span className="text-[10px] text-gray-400 w-5">{count}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TextAnswers({ answers, lang }) {
+  if (!answers.length) return <p className="text-xs text-gray-400">{lang === "es" ? "Sin respuestas" : "No answers"}</p>;
+  return (
+    <div className="space-y-1 max-h-32 overflow-y-auto">
+      {answers.map((a, i) => (
+        <p key={i} className="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-1.5">"{a}"</p>
+      ))}
+    </div>
+  );
+}
+
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 function UsersTab({ lang }) {
   const [users, setUsers] = useState([]);
@@ -126,6 +224,7 @@ function SurveysTab({ lang }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", questions: [] });
   const [saving, setSaving] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
 
   const fetchSurveys = useCallback(async () => {
     setLoading(true);
@@ -239,12 +338,18 @@ function SurveysTab({ lang }) {
       {loading ? <Spinner /> : surveys.map(s => (
         <div key={s.id} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
           <div className="flex justify-between items-start gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="font-bold text-gray-800 text-sm">{s.title}</p>
               {s.description && <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>}
               <div className="flex gap-3 mt-2 text-xs text-gray-400 font-bold">
                 <span>{s.questions.length} {lang === "es" ? "preg." : "q."}</span>
-                <span>{s.responseCount} {lang === "es" ? "resp." : "resp."}</span>
+                <button
+                  onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                  className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 transition-colors"
+                >
+                  {s.responseCount} {lang === "es" ? "resp." : "resp."}
+                  {s.responseCount > 0 && (expandedId === s.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                </button>
                 <span>{new Date(s.created_at).toLocaleDateString(lang === "es" ? "es-PE" : "en-US")}</span>
               </div>
             </div>
@@ -256,6 +361,9 @@ function SurveysTab({ lang }) {
               {s.active ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
             </button>
           </div>
+          {expandedId === s.id && (
+            <SurveyResults surveyId={s.id} lang={lang} />
+          )}
         </div>
       ))}
     </div>
