@@ -45,10 +45,11 @@ function RateCustomerModal({ job, lang, onClose }) {
     setSubmitting(true);
     try {
       await api.rateCustomer(job.id, selected);
+      onClose(true, selected);
     } catch {
-      // rating is best-effort
+      onClose(false);
     } finally {
-      onClose(true);
+      setSubmitting(false);
     }
   };
 
@@ -214,9 +215,14 @@ export default function ProviderDashboard({ user, nav, lang, toggleLang, notify 
     }
   };
 
-  const handleRatingClose = (submitted) => {
+  const handleRatingClose = (submitted, stars) => {
+    const jobId = ratingJob?.id;
     setRatingJob(null);
-    if (submitted) { fetched.current.jobs = false; fetchTab("active"); }
+    if (submitted && jobId) {
+      setMyJobs(prev => prev.map(j => j.id === jobId ? { ...j, customerRating: stars } : j));
+      fetched.current.jobs = false;
+      fetchTab("active");
+    }
   };
 
   const activeJobs = myJobs.filter(j => j.status !== "completed");
