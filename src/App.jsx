@@ -1208,6 +1208,7 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [ratingBookingId, setRatingBookingId] = useState(null);
+  const dismissedRatingIds = useRef(new Set());
 
   const loadBookings = () => {
     if (!user) { setLoading(false); return; }
@@ -1215,7 +1216,7 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
     api.getBookings()
       .then((data) => {
         setBookings(data);
-        const unrated = data.find(b => b.status === "completed" && !b.serviceRating);
+        const unrated = data.find(b => b.status === "completed" && !b.serviceRating && !dismissedRatingIds.current.has(b.id));
         if (unrated) setRatingBookingId(unrated.id);
       })
       .catch((err) => setError(err.message))
@@ -1243,6 +1244,7 @@ function BookingsPage({ nav, user, t, lang, toggleLang }) {
           bookingId={ratingBookingId}
           lang={lang}
           onClose={() => {
+            dismissedRatingIds.current.add(ratingBookingId);
             setRatingBookingId(null);
             loadBookings();
           }}
