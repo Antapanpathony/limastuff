@@ -323,6 +323,57 @@ function Spinner() {
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 export default function AdminDashboard({ user, nav, lang, toggleLang }) {
   const [tab, setTab] = useState("users");
+  const [authed, setAuthed] = useState(false);
+  const [loginForm, setLoginForm] = useState({ username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (loginForm.username === "admin" && loginForm.password === "123456") {
+      setAuthed(true);
+      setLoginError("");
+    } else {
+      setLoginError(lang === "es" ? "Credenciales incorrectas" : "Invalid credentials");
+    }
+  };
+
+  if (!authed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
+        <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-xl">
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-3">🔒</div>
+            <h2 className="text-xl font-black text-gray-800">
+              {lang === "es" ? "Acceso Admin" : "Admin Access"}
+            </h2>
+          </div>
+          <form onSubmit={handleAdminLogin} className="space-y-4">
+            <input
+              type="text"
+              placeholder={lang === "es" ? "Usuario" : "Username"}
+              value={loginForm.username}
+              onChange={(e) => setLoginForm(f => ({ ...f, username: e.target.value }))}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <input
+              type="password"
+              placeholder={lang === "es" ? "Contraseña" : "Password"}
+              value={loginForm.password}
+              onChange={(e) => setLoginForm(f => ({ ...f, password: e.target.value }))}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            {loginError && <p className="text-red-500 text-xs font-bold text-center">{loginError}</p>}
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-black hover:bg-indigo-700 transition-colors"
+            >
+              {lang === "es" ? "Entrar" : "Login"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const tabs = [
     { id: "users", label: lang === "es" ? "Usuarios" : "Users" },
