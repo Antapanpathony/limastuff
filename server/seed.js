@@ -20,6 +20,38 @@ const DEFAULT_PASSWORD = 'password123';
 const DEFAULT_CUSTOMER = {
   name: 'Demo Customer',
   email: 'customer@demo.pe',
+  category: 'general',
+  bio: 'Cuenta demo con servicios de ejemplo en múltiples categorías.',
+  hourlyRate: 40,
+  services: [
+    {
+      nameEs: 'Limpieza de hogar',
+      nameEn: 'Home cleaning',
+      descEs: 'Servicio de limpieza general del hogar.',
+      descEn: 'General home cleaning service.',
+      price: 100,
+      duration: '2h',
+      category: 'cleaning',
+    },
+    {
+      nameEs: 'Instalación eléctrica básica',
+      nameEn: 'Basic electrical installation',
+      descEs: 'Instalación de tomacorrientes e interruptores.',
+      descEn: 'Outlet and switch installation.',
+      price: 60,
+      duration: '1h',
+      category: 'electrician',
+    },
+    {
+      nameEs: 'Gasfitería general',
+      nameEn: 'General plumbing',
+      descEs: 'Reparación y mantenimiento de tuberías y grifos.',
+      descEn: 'Pipe and tap repair and maintenance.',
+      price: 70,
+      duration: '1.5h',
+      category: 'plumbing',
+    },
+  ],
 };
 
 const PROVIDERS = [
@@ -262,21 +294,45 @@ async function seed() {
   let created = 0;
   let skipped = 0;
 
-  // Seed default customer account
+  // Seed default customer account (also seeded as a provider with demo services)
   const { data: existingCustomer } = await supabase
     .from('users').select('id').eq('email', DEFAULT_CUSTOMER.email).maybeSingle();
   if (existingCustomer) {
     console.log(`  SKIP  ${DEFAULT_CUSTOMER.email} (already exists)`);
     skipped++;
   } else {
-    const { error: custErr } = await supabase
+    const { data: custUser, error: custErr } = await supabase
       .from('users')
-      .insert({ email: DEFAULT_CUSTOMER.email, name: DEFAULT_CUSTOMER.name, role: 'customer', is_provider: false, password: hashedPassword });
+      .insert({ email: DEFAULT_CUSTOMER.email, name: DEFAULT_CUSTOMER.name, role: 'customer', is_provider: true, password: hashedPassword })
+      .select('id').single();
     if (custErr) {
       console.error(`  ERROR creating customer ${DEFAULT_CUSTOMER.email}:`, custErr.message);
     } else {
-      console.log(`  OK    ${DEFAULT_CUSTOMER.email} — customer`);
-      created++;
+      const { error: profErr } = await supabase
+        .from('provider_profiles')
+        .insert({ user_id: custUser.id, bio: DEFAULT_CUSTOMER.bio, category: DEFAULT_CUSTOMER.category, hourly_rate: DEFAULT_CUSTOMER.hourlyRate });
+      if (profErr) {
+        console.error(`  ERROR creating profile for ${DEFAULT_CUSTOMER.email}:`, profErr.message);
+      } else {
+        const svcRows = DEFAULT_CUSTOMER.services.map(s => ({
+          provider_id: custUser.id,
+          category: s.category,
+          name_es: s.nameEs,
+          name_en: s.nameEn,
+          desc_es: s.descEs,
+          desc_en: s.descEn,
+          price: s.price,
+          duration: s.duration,
+          active: true,
+        }));
+        const { error: svcErr } = await supabase.from('services').insert(svcRows);
+        if (svcErr) {
+          console.error(`  ERROR creating services for ${DEFAULT_CUSTOMER.email}:`, svcErr.message);
+        } else {
+          console.log(`  OK    ${DEFAULT_CUSTOMER.email} — customer + provider (${DEFAULT_CUSTOMER.services.length} services)`);
+          created++;
+        }
+      }
     }
   }
 
