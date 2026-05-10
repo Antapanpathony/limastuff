@@ -388,13 +388,18 @@ app.post('/api/bookings/:id/rate', auth, async (req, res) => {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (booking.status !== 'completed') return res.status(400).json({ error: 'Booking is not completed yet' });
 
-    const { error } = await supabase.from('ratings').upsert({
+    const { data: existing } = await supabase
+      .from('ratings').select('id')
+      .eq('booking_id', booking.id).eq('type', 'provider_service').maybeSingle();
+    if (existing) return res.status(400).json({ error: 'Already rated' });
+
+    const { error } = await supabase.from('ratings').insert({
       booking_id: booking.id,
       rater_id: req.user.userId,
       ratee_id: booking.provider_id,
       stars,
       type: 'provider_service',
-    }, { onConflict: 'booking_id,type' });
+    });
     if (error) throw error;
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -597,13 +602,18 @@ app.post('/api/provider/jobs/:id/rate-customer', auth, requireProvider, async (r
     if (!booking) return res.status(404).json({ error: 'Job not found' });
     if (booking.status !== 'completed') return res.status(400).json({ error: 'Job is not completed yet' });
 
-    const { error } = await supabase.from('ratings').upsert({
+    const { data: existing } = await supabase
+      .from('ratings').select('id')
+      .eq('booking_id', booking.id).eq('type', 'customer_behavior').maybeSingle();
+    if (existing) return res.status(400).json({ error: 'You have already rated this customer for this job' });
+
+    const { error } = await supabase.from('ratings').insert({
       booking_id: booking.id,
       rater_id: req.user.userId,
       ratee_id: booking.customer_id,
       stars,
       type: 'customer_behavior',
-    }, { onConflict: 'booking_id,type' });
+    });
     if (error) throw error;
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
