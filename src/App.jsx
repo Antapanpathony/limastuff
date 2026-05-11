@@ -1685,7 +1685,7 @@ function LoginPage({ login, nav, t, lang }) {
   };
 
   return (
-    <div className="min-h-screen bg-white p-8 flex flex-col justify-center">
+    <div className="min-h-screen bg-white px-8 py-16 flex flex-col overflow-y-auto">
       <div className="text-5xl mb-6">🏠</div>
       <h2 className="text-3xl font-black text-gray-900 leading-tight mb-2">{t("welcome")}</h2>
       <p className="text-gray-400 mb-8">{t("login_sub")}</p>
@@ -1838,7 +1838,7 @@ function RegisterPage({ login, nav, t, lang }) {
   };
 
   return (
-    <div className="min-h-screen bg-white p-8 flex flex-col justify-center">
+    <div className="min-h-screen bg-white px-8 py-16 flex flex-col overflow-y-auto">
       <div className="text-5xl mb-4">{role === "customer" ? "✍️" : "🔨"}</div>
       <h2 className="text-3xl font-black text-gray-900 leading-tight mb-6">{t("create_account")}</h2>
 
